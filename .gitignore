@@ -1,0 +1,44 @@
+# --- Virtual environments ---
+deforest/
+venv/
+.venv/
+.env/
+
+# --- Python cache/artifacts ---
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+
+# --- OS / Editor ---
+.DS_Store
+*.swp
+*.swo
+.vscode/
+.ipynb_checkpoints/
+
+# --- Logs / temp ---
+*.log
+logs/
+tmp/
+.cache/
+
+# --- Outputs / models / checkpoints ---
+outputs/
+models/
+checkpoints/
+*.ckpt
+*.h5
+*.pt
+*.pth
+*.onnx
+*.pb
+
+# --- Data (ignored by default) ---
+data/**
+# Keep only metadata or small files explicitly
+!data/.gitkeep
+!data/README.md
+!data/manifest.tsv
+!data/sample/**
