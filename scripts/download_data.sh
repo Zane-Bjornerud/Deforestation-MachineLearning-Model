@@ -80,3 +80,5 @@ done < "$MANIFEST"
 echo
 echo "All done. Current data/ contents:"
 du -h -d 1 "$DEST_DIR" || true
+
+#chmod +x scripts/download_data.sh
