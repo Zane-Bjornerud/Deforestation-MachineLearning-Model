@@ -5,24 +5,30 @@ from torch.utils.data import DataLoader
 from dataset import DeforestationDataset
 import numpy as np
 import os
+import segmentation_models_pytorch as smp
 
 # Check for MPS (Metal Performance Shaders) on M1 Mac
-if torch.backends.mps.is_available():
-    DEVICE = torch.device("mps")
-    print("Using MPS device")
-elif torch.cuda.is_available():
-    DEVICE = torch.device("cuda")
-    print("Using CUDA device")
-else:
-    DEVICE = torch.device("cpu")
-    print("Using CPU device")
+# if torch.backends.mps.is_available():
+#     DEVICE = torch.device("mps")
+#     print("Using MPS device")
+# elif torch.cuda.is_available():
+#     DEVICE = torch.device("cuda")
+#     print("Using CUDA device")
+# else:
+#     DEVICE = torch.device("cpu")
+#     print("Using CPU device")
+
+# Force CPU for compatibility with Focal Loss on Mac M1
+DEVICE = torch.device("cpu")
+print("Using CPU device (MPS has compatibility issues with some loss functions)")
 
 # Model configuration
 IN_CH = 18  # Your data has 18 bands
 OUT_CH = 1
 
 # Loss functions
-bce = nn.BCEWithLogitsLoss()
+# bce = nn.BCEWithLogitsLoss()
+bce = smp.losses.FocalLoss(mode="binary", alpha=0.75, gamma=2.0)
 
 
 def dice_loss(logits, y, eps=1e-6):
