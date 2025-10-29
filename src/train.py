@@ -154,7 +154,7 @@ if __name__ == "__main__":
     model = smp.Unet(encoder_name="resnet34", in_channels=IN_CH, classes=OUT_CH).to(
         DEVICE
     )
-    opt = torch.optim.AdamW(model.parameters(), lr=1e-3)
+    opt = torch.optim.AdamW(model.parameters(), lr=1e-4)  # reduced from 1e-3
 
     # Create data loaders with smaller batch size due to 256x256 images
     try:
