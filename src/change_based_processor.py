@@ -82,7 +82,7 @@ def process_tfrecords_with_change_labels():
     }
 
     # Use moderate thresholds
-    selected_threshold = "moderate"
+    selected_threshold = "sensitive"
     dnbr_thresh = thresholds[selected_threshold]["dnbr"]
     dndvi_thresh = thresholds[selected_threshold]["dndvi"]
 
