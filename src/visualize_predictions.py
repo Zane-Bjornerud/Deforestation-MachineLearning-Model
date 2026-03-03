@@ -71,12 +71,12 @@ for i in range(5):
     # Print statistics
     print(f"\nSample {i}:")
     print(
-        f"  True deforestation: {true_mask.sum().item():.0f} pixels ({true_mask.mean()*100:.2f}%)"
+        f"True deforestation: {true_mask.sum().item():.0f} pixels ({true_mask.mean()*100:.2f}%)"
     )
     print(
-        f"  Predicted deforestation: {pred_mask.sum():.0f} pixels ({pred_mask.mean()*100:.2f}%)"
+        f"Predicted deforestation: {pred_mask.sum():.0f} pixels ({pred_mask.mean()*100:.2f}%)"
     )
-    print(f"  Mean confidence: {pred_prob.mean():.3f}")
+    print(f"Mean confidence: {pred_prob.mean():.3f}")
 
 plt.tight_layout()
 plt.savefig("outputs/predictions_visualization.png", dpi=150, bbox_inches="tight")

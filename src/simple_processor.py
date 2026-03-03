@@ -30,32 +30,30 @@ def inspect_single_file(file_path):
 
     try:
         with rasterio.open(file_path) as src:
-            print(f"  Dimensions: {src.width} x {src.height}")
-            print(f"  Bands: {src.count}")
-            print(f"  Data type: {src.dtypes[0]}")
-            print(f"  CRS: {src.crs}")
+            print(f"Dimensions: {src.width} x {src.height}")
+            print(f"Bands: {src.count}")
+            print(f"Data type: {src.dtypes[0]}")
+            print(f"CRS: {src.crs}")
 
             # Read a tiny sample
             sample_size = min(50, src.width, src.height)
             sample = src.read(window=Window(0, 0, sample_size, sample_size))
 
-            print(f"  Sample shape: {sample.shape}")
-            print(
-                f"  Sample min/max: {np.nanmin(sample):.3f} / {np.nanmax(sample):.3f}"
-            )
-            print(f"  Has NaN: {np.isnan(sample).any()}")
+            print(f"Sample shape: {sample.shape}")
+            print(f"Sample min/max: {np.nanmin(sample):.3f} / {np.nanmax(sample):.3f}")
+            print(f"Has NaN: {np.isnan(sample).any()}")
 
             return True
     except Exception as e:
-        print(f"  Error reading file: {e}")
+        print(f"Error reading file: {e}")
         return False
 
 
 def create_single_chip_test(stack_path, labels_path):
     """Create just one chip as a test."""
     print(f"\nTesting with one chip from:")
-    print(f"  Stack: {stack_path}")
-    print(f"  Labels: {labels_path}")
+    print(f"Stack: {stack_path}")
+    print(f"Labels: {labels_path}")
 
     try:
         with rasterio.open(stack_path) as stack_src, rasterio.open(
@@ -116,10 +114,7 @@ def main():
     files = check_files()
 
     if not files:
-        print("\nNo files found. Please:")
-        print("1. Go to your Google Earth Engine tasks")
-        print("2. Download the exported files")
-        print("3. Place them in the 'data' directory")
+        print("\nNo files found")
         return
 
     # Step 2: Look for GeoTIFF files
@@ -169,10 +164,10 @@ def main():
         success = create_single_chip_test(stack_path, labels_path)
 
         if success:
-            print("\n✅ Test successful! You can now run the full processor.")
+            print("\nTest successful! Can now run the full processor.")
             print("Edit the file paths in the main processor and run it.")
         else:
-            print("\n❌ Test failed. Check the file paths and formats.")
+            print("\nTest failed. Check the file paths and formats.")
 
 
 if __name__ == "__main__":

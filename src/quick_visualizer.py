@@ -144,13 +144,13 @@ def visualize_chips():
         )
 
         if potential_defor_dnbr == 0 and potential_defor_dndvi == 0:
-            print("\n💡 Observation: Very little forest change detected in this area.")
-            print("   This could mean:")
-            print("   1. The area was stable in 2020-2021 (good!)")
-            print("   2. The area chosen doesn't have clear-cut deforestation")
-            print("   3. You might want to try a different area or time period")
+            print("\nObservation: Very little forest change detected in this area.")
+            print("This could mean:")
+            print("1. The area was stable in 2020-2021 (good!)")
+            print("2. The area chosen doesn't have clear-cut deforestation")
+            print("3. You might want to try a different area or time period")
 
-    print(f"\n✅ Sample visualization saved to: data/processed/sample_chips.png")
+    print(f"\nSample visualization saved to: data/processed/sample_chips.png")
 
 
 if __name__ == "__main__":

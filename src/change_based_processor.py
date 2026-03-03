@@ -125,7 +125,7 @@ def process_tfrecords_with_change_labels():
                             band_resized = resize_array(band_reshaped, target_size)
                             if chip_count == 0 and len(chip_bands) == 0:
                                 print(
-                                    f"    Resizing features from {band_size}x{band_size} to {target_size[0]}x{target_size[1]}"
+                                    f"Resizing features from {band_size}x{band_size} to {target_size[0]}x{target_size[1]}"
                                 )
                         else:
                             band_resized = band_reshaped
@@ -202,17 +202,15 @@ def process_tfrecords_with_change_labels():
                             1 for x in all_metadata if x["has_deforestation"]
                         )
                         print(
-                            f"    Processed {chip_count} chips, {current_defor} with deforestation ({current_defor/chip_count*100:.1f}%)"
+                            f"Processed {chip_count} chips, {current_defor} with deforestation ({current_defor/chip_count*100:.1f}%)"
                         )
 
                     # Show first few chips info
                     if chip_count <= 5:
                         print(
-                            f"    Chip {chip_count}: {len(chip_bands)} bands, {target_size[0]}x{target_size[1]}"
+                            f"Chip {chip_count}: {len(chip_bands)} bands, {target_size[0]}x{target_size[1]}"
                         )
-                        print(
-                            f"      Has deforestation: {has_defor} ({defor_fraction:.3%})"
-                        )
+                        print(f"Has deforestation: {has_defor} ({defor_fraction:.3%})")
                         if chip_count == 1:
                             print(f"      Bands: {band_names}")
 
@@ -221,7 +219,7 @@ def process_tfrecords_with_change_labels():
                     print(f"    Error: {e}")
                 continue
 
-        print(f"    Extracted {file_count} chips from {tfrecord_file.name}")
+        print(f"Extracted {file_count} chips from {tfrecord_file.name}")
 
     # Save metadata
     metadata_path = "data/processed/metadata.pkl"
@@ -229,9 +227,7 @@ def process_tfrecords_with_change_labels():
         pickle.dump(all_metadata, f)
 
     # Print summary
-    print(f"\n{'='*60}")
     print("PROCESSING SUMMARY")
-    print(f"{'='*60}")
     print(f"Total chips processed: {chip_count}")
 
     if all_metadata:
@@ -263,11 +259,11 @@ def process_tfrecords_with_change_labels():
     print(f"  Masks: data/processed/masks/ ({chip_count} files)")
 
     if chip_count > 0 and n_with_defor > 0:
-        print("\n✅ Processing successful with deforestation detected!")
+        print("\nProcessing successful with deforestation detected!")
         return all_metadata
     else:
         print(
-            "\n⚠️ Processing complete but no deforestation detected. Try adjusting thresholds."
+            "\nProcessing complete but no deforestation detected. Try adjusting thresholds."
         )
         return None
 
@@ -349,10 +345,10 @@ if __name__ == "__main__":
         # Compute normalization stats
         stats = compute_normalization_stats_final("data/processed/metadata.pkl")
 
-        print(f"\n🎉 Data processing complete!")
+        print(f"\nData processing complete")
         print("\nNext steps:")
         print("1. python src/split_data.py")
         print("2. python src/train.py")
         print("3. jupyter notebook notebooks/explore_data.ipynb")
     else:
-        print("❌ No deforestation detected. Consider adjusting thresholds.")
+        print("No deforestation detected. Consider adjusting thresholds")

@@ -73,7 +73,7 @@ def process_tfrecords_resolution_fixed():
                             label_data = resize_array(label_reshaped, target_size)
                             if chip_count == 0:
                                 print(
-                                    f"    Resizing labels from {label_size}x{label_size} to {target_size[0]}x{target_size[1]}"
+                                    f"Resizing labels from {label_size}x{label_size} to {target_size[0]}x{target_size[1]}"
                                 )
                         else:
                             label_data = label_reshaped
@@ -103,7 +103,7 @@ def process_tfrecords_resolution_fixed():
                             band_resized = resize_array(band_reshaped, target_size)
                             if chip_count == 0 and len(chip_bands) == 0:
                                 print(
-                                    f"    Resizing features from {band_size}x{band_size} to {target_size[0]}x{target_size[1]}"
+                                    f"Resizing features from {band_size}x{band_size} to {target_size[0]}x{target_size[1]}"
                                 )
                         else:
                             band_resized = band_reshaped
@@ -173,28 +173,26 @@ def process_tfrecords_resolution_fixed():
                     # Show first few chips info
                     if chip_count <= 3:
                         print(
-                            f"    Chip {chip_count}: {len(chip_bands)} bands, {target_size[0]}x{target_size[1]}"
+                            f"Chip {chip_count}: {len(chip_bands)} bands, {target_size[0]}x{target_size[1]}"
                         )
-                        print(f"      Shape: {chip.shape}")
-                        print(f"      Mask shape: {mask.shape}")
-                        print(
-                            f"      Has deforestation: {has_defor} ({defor_fraction:.3%})"
-                        )
+                        print(f"Shape: {chip.shape}")
+                        print(f"Mask shape: {mask.shape}")
+                        print(f"Has deforestation: {has_defor} ({defor_fraction:.3%})")
                         if chip_count == 1:
-                            print(f"      Bands: {band_names}")
+                            print(f"Bands: {band_names}")
 
                 else:
                     if file_count < 3:  # Only show warnings for first few
                         print(
-                            f"    Skipping: bands={len(chip_bands)}, label={label_data is not None}"
+                            f"Skipping: bands={len(chip_bands)}, label={label_data is not None}"
                         )
 
             except Exception as e:
                 if file_count < 3:  # Only show errors for first few
-                    print(f"    Error: {e}")
+                    print(f"Error: {e}")
                 continue
 
-        print(f"    Extracted {file_count} chips from {tfrecord_file.name}")
+        print(f"Extracted {file_count} chips from {tfrecord_file.name}")
 
     # Save metadata
     metadata_path = "data/processed/metadata.pkl"
@@ -202,9 +200,7 @@ def process_tfrecords_resolution_fixed():
         pickle.dump(all_metadata, f)
 
     # Print summary
-    print(f"\n{'='*60}")
     print("PROCESSING SUMMARY")
-    print(f"{'='*60}")
     print(f"Total chips processed: {chip_count}")
 
     if all_metadata:
@@ -250,10 +246,10 @@ def process_tfrecords_resolution_fixed():
     print(f"  Masks: data/processed/masks/ ({chip_count} files)")
 
     if chip_count > 0:
-        print("\n✅ Processing successful!")
+        print("\n Processing successful!")
         return all_metadata
     else:
-        print("\n❌ No chips processed.")
+        print("\n No chips processed.")
         return None
 
 
@@ -334,10 +330,10 @@ if __name__ == "__main__":
         # Compute normalization stats
         stats = compute_normalization_stats_final("data/processed/metadata.pkl")
 
-        print(f"\n🎉 Data processing complete!")
+        print(f"\n Data processing complete!")
         print("\nNext steps:")
         print("1. python src/split_data.py")
         print("2. python src/train.py")
         print("3. jupyter notebook notebooks/explore_data.ipynb")
     else:
-        print("❌ No data processed successfully.")
+        print(" No data processed successfully.")
