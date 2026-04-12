@@ -66,7 +66,7 @@ def train_model(train_loader, val_loader, epochs=50):
 
         # Validation
         model.eval()
-        inter = union = val_loss = 0
+        inter = union = val_loss = pred_pos = actual_pos = 0
         with torch.no_grad():
             for xb, yb in val_loader:
                 try:
@@ -79,16 +79,19 @@ def train_model(train_loader, val_loader, epochs=50):
                     yb_bool = yb.bool()
                     inter += (pb & yb_bool).sum().item()
                     union += (pb | yb_bool).sum().item()
+                    pred_pos += pb.sum().item()
+                    actual_pos += yb_bool.sum().item()
                 except Exception as e:
                     print(f"Error in validation: {e}")
                     continue
 
         iou = inter / max(1, union)
+        f1 = 2 * inter / max(1, pred_pos + actual_pos)
         avg_train_loss = train_loss / len(train_loader)
         avg_val_loss = val_loss / len(val_loader)
 
         print(
-            f"Epoch {epoch}: Train Loss={avg_train_loss:.4f}, Val Loss={avg_val_loss:.4f}, IoU={iou:.3f}"
+            f"Epoch {epoch}: Train Loss={avg_train_loss:.4f}, Val Loss={avg_val_loss:.4f}, IoU={iou:.3f}, F1={f1:.3f}"
         )
 
         # Save best model
