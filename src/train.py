@@ -87,11 +87,13 @@ def train_model(train_loader, val_loader, epochs=50):
 
         iou = inter / max(1, union)
         f1 = 2 * inter / max(1, pred_pos + actual_pos)
+        precision = inter / max(1, pred_pos)
+        recall = inter / max(1, actual_pos)
         avg_train_loss = train_loss / len(train_loader)
         avg_val_loss = val_loss / len(val_loader)
 
         print(
-            f"Epoch {epoch}: Train Loss={avg_train_loss:.4f}, Val Loss={avg_val_loss:.4f}, IoU={iou:.3f}, F1={f1:.3f}"
+            f"Epoch {epoch}: Train Loss={avg_train_loss:.4f}, Val Loss={avg_val_loss:.4f}, IoU={iou:.3f}, F1={f1:.3f}, Precision={precision:.3f}, Recall={recall:.3f}"
         )
 
         # Save best model
