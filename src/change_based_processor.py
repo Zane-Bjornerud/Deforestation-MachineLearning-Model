@@ -4,7 +4,89 @@ import pickle
 from pathlib import Path
 import tensorflow as tf
 from scipy import ndimage
+import math
+import matplotlib.pyplot as plt
 
+
+def inspect_processed_sample(
+    metadata_file="data/processed/metadata.pkl",
+    sample_index=0,
+    output_dir="debug/channels",
+):
+    """Print per-channel stats and save an 18-panel diagnostic figure."""
+
+    os.makedirs(output_dir, exist_ok=True)
+
+    with open(metadata_file, "rb") as f:
+        metadata = pickle.load(f)
+
+    item = metadata[sample_index]
+    image = np.load(f"data/processed/{item['chip_path']}")
+    mask = np.load(f"data/processed/{item['mask_path']}")
+    band_names = item["band_names"]
+
+    print(f"Chip id: {item['chip_id']}")
+    print(f"Image shape: {image.shape}")
+    print(f"Mask shape: {mask.shape}")
+    print("Band order:")
+    for channel_index, band_name in enumerate(band_names):
+        print(f"  {channel_index:02d}: {band_name}")
+
+    print("\nChannel statistics:")
+    for channel_index in range(image.shape[0]):
+        channel = image[channel_index]
+        band_name = band_names[channel_index] if channel_index < len(band_names) else f"channel_{channel_index}"
+
+        print(
+            f"{channel_index:02d} {band_name:10s} "
+            f"min={float(channel.min()):10.4f} "
+            f"max={float(channel.max()):10.4f} "
+            f"mean={float(channel.mean()):10.4f} "
+            f"std={float(channel.std()):10.4f}"
+        )
+
+    print("\nMask statistics:")
+    print(
+        f"mask min={float(mask.min()):.4f} "
+        f"max={float(mask.max()):.4f} "
+        f"mean={float(mask.mean()):.4f} "
+        f"std={float(mask.std()):.4f} "
+        f"sum={float(mask.sum()):.1f}"
+    )
+
+    n_channels = image.shape[0]
+    n_cols = 3
+    n_rows = math.ceil(n_channels / n_cols)
+
+    fig, axes = plt.subplots(n_rows, n_cols, figsize=(15, 5 * n_rows))
+    axes = np.atleast_1d(axes).ravel()
+
+    for channel_index in range(n_channels):
+        channel = image[channel_index]
+        band_name = band_names[channel_index] if channel_index < len(band_names) else f"channel_{channel_index}"
+
+        ax = axes[channel_index]
+        im = ax.imshow(channel, cmap="gray")
+        ax.set_title(f"{channel_index:02d}: {band_name}")
+        ax.axis("off")
+        fig.colorbar(im, ax=ax, fraction=0.046)
+
+        plt.imsave(
+            f"{output_dir}/channel_{channel_index:02d}_{band_name}.png",
+            channel,
+            cmap="gray",
+        )
+
+    for ax in axes[n_channels:]:
+        ax.axis("off")
+
+    plt.tight_layout()
+    figure_path = f"{output_dir}/all_channels_{item['chip_id']}.png"
+    plt.savefig(figure_path, dpi=150, bbox_inches="tight")
+    plt.close(fig)
+
+    print(f"\nSaved channel panels to: {output_dir}")
+    print(f"Saved combined figure to: {figure_path}")
 
 def resize_array(array, target_size):
     """Resize array to target size using bilinear interpolation."""
@@ -97,7 +179,7 @@ def process_tfrecords_with_change_labels():
         dataset = tf.data.TFRecordDataset(str(tfrecord_file))
 
         file_count = 0
-        for raw_record in dataset:
+        for raw_record_index, raw_record in enumerate(dataset):
             try:
                 # Parse the TF Example
                 example = tf.train.Example.FromString(raw_record.numpy())
@@ -183,22 +265,24 @@ def process_tfrecords_with_change_labels():
                     defor_fraction = float(np.mean(mask))
 
                     all_metadata.append(
-                        {
-                            "chip_id": chip_id,
-                            "chip_path": f"chips/{chip_id}.npy",
-                            "mask_path": f"masks/{chip_id}.npy",
-                            "has_deforestation": has_defor,
-                            "deforestation_fraction": defor_fraction,
-                            "patch_size": target_size[0],
-                            "n_bands": len(chip_bands),
-                            "band_names": band_names,
-                            "labeling_method": f"change_indices_{selected_threshold}",
-                            "thresholds_used": {
-                                "dnbr": dnbr_thresh,
-                                "dndvi": dndvi_thresh,
-                            },
-                        }
-                    )
+    {
+        "chip_id": chip_id,
+        "chip_path": f"chips/{chip_id}.npy",
+        "mask_path": f"masks/{chip_id}.npy",
+        "source_tfrecord": str(tfrecord_file),
+        "source_record_index": raw_record_index,
+        "has_deforestation": has_defor,
+        "deforestation_fraction": defor_fraction,
+        "patch_size": target_size[0],
+        "n_bands": len(chip_bands),
+        "band_names": band_names,
+        "labeling_method": f"change_indices_{selected_threshold}",
+        "thresholds_used": {
+            "dnbr": dnbr_thresh,
+            "dndvi": dndvi_thresh,
+        },
+    }
+)
 
                     chip_count += 1
                     file_count += 1
@@ -333,6 +417,155 @@ def compute_normalization_stats_final(metadata_file, n_samples=100):
 
     return stats
 
+def load_raw_feature_arrays(example, target_size):
+    """Extract raw feature arrays from one TFRecord example."""
+    raw_arrays = {}
+
+    for key, feature in example.features.feature.items():
+        if key == "label":
+            continue
+
+        if feature.HasField("float_list"):
+            values = np.array(feature.float_list.value, dtype=np.float32)
+        elif feature.HasField("bytes_list"):
+            values = np.frombuffer(feature.bytes_list.value[0], dtype=np.float32)
+        else:
+            continue
+
+        band_size = int(np.sqrt(len(values)))
+        band = values.reshape(band_size, band_size)
+
+        if band.shape != target_size:
+            band = resize_array(band, target_size)
+
+        raw_arrays[key] = band
+
+    return raw_arrays
+
+
+def confirm_one_chip_against_raw(
+    metadata_file="data/processed/metadata.pkl",
+    sample_index=0,
+    channel_pairs=None,
+    output_dir="debug/raw_confirmation",
+):
+    """
+    Manually confirm that selected raw TFRecord bands match processed channels.
+
+    channel_pairs should be a list of:
+        (raw_band_name, processed_band_name)
+    Example:
+        [("B4_1", "B4_1"), ("B8_1", "B8_1"), ("dNBR", "dNBR")]
+    """
+
+    os.makedirs(output_dir, exist_ok=True)
+
+    with open(metadata_file, "rb") as f:
+        metadata = pickle.load(f)
+
+    item = metadata[sample_index]
+    image = np.load(f"data/processed/{item['chip_path']}")
+    band_names = item["band_names"]
+    target_size = image.shape[1:]
+
+    raw_tfrecord_path = item["source_tfrecord"]
+    raw_record_index = item["source_record_index"]
+
+    dataset = tf.data.TFRecordDataset(str(raw_tfrecord_path))
+
+    raw_record = None
+    for record_index, raw in enumerate(dataset):
+        if record_index == raw_record_index:
+            raw_record = raw
+            break
+
+    if raw_record is None:
+        raise IndexError(
+            f"Could not find record {raw_record_index} in {raw_tfrecord_path}"
+        )
+
+    example = tf.train.Example.FromString(raw_record.numpy())
+    raw_arrays = load_raw_feature_arrays(example, target_size)
+
+    if channel_pairs is None:
+        channel_pairs = [
+            ("B4_1", "B4_1"),
+            ("B8_1", "B8_1"),
+            ("dNBR", "dNBR"),
+        ]
+
+    print("\n=== RAW TO PROCESSED CHANNEL CONFIRMATION ===")
+    print(f"Chip id: {item['chip_id']}")
+    print(f"Processed chip path: data/processed/{item['chip_path']}")
+    print(f"Raw TFRecord: {raw_tfrecord_path}")
+    print(f"Raw record index: {raw_record_index}")
+    print("\nProcessed band order:")
+    for channel_index, band_name in enumerate(band_names):
+        print(f"  {channel_index:02d}: {band_name}")
+
+    for raw_band_name, processed_band_name in channel_pairs:
+        if raw_band_name not in raw_arrays:
+            print(f"\nMissing raw band: {raw_band_name}")
+            continue
+
+        if processed_band_name not in band_names:
+            print(f"\nMissing processed band: {processed_band_name}")
+            continue
+
+        processed_index = band_names.index(processed_band_name)
+        raw_channel = raw_arrays[raw_band_name]
+        processed_channel = image[processed_index]
+
+        diff = np.abs(raw_channel - processed_channel)
+        mean_abs_diff = float(diff.mean())
+        max_abs_diff = float(diff.max())
+        matches = bool(
+            np.allclose(raw_channel, processed_channel, atol=1e-6, rtol=1e-6)
+        )
+
+        print(
+            f"\nraw {raw_band_name} -> processed channel {processed_index} "
+            f"({processed_band_name})"
+        )
+        print(
+            f"  raw stats:       min={float(raw_channel.min()):.4f} "
+            f"max={float(raw_channel.max()):.4f} "
+            f"mean={float(raw_channel.mean()):.4f} "
+            f"std={float(raw_channel.std()):.4f}"
+        )
+        print(
+            f"  processed stats: min={float(processed_channel.min()):.4f} "
+            f"max={float(processed_channel.max()):.4f} "
+            f"mean={float(processed_channel.mean()):.4f} "
+            f"std={float(processed_channel.std()):.4f}"
+        )
+        print(
+            f"  difference:      mean_abs={mean_abs_diff:.8f} "
+            f"max_abs={max_abs_diff:.8f} "
+            f"allclose={matches}"
+        )
+
+        fig, axes = plt.subplots(1, 3, figsize=(15, 5))
+        axes[0].imshow(raw_channel, cmap="gray")
+        axes[0].set_title(f"Raw: {raw_band_name}")
+        axes[0].axis("off")
+
+        axes[1].imshow(processed_channel, cmap="gray")
+        axes[1].set_title(f"Processed {processed_index}: {processed_band_name}")
+        axes[1].axis("off")
+
+        axes[2].imshow(diff, cmap="magma")
+        axes[2].set_title("Absolute difference")
+        axes[2].axis("off")
+
+        plt.tight_layout()
+        plt.savefig(
+            f"{output_dir}/{item['chip_id']}_{processed_index:02d}_{processed_band_name}.png",
+            dpi=150,
+            bbox_inches="tight",
+        )
+        plt.close(fig)
+
 
 if __name__ == "__main__":
     # Install scipy if needed
@@ -349,6 +582,11 @@ if __name__ == "__main__":
     metadata = process_tfrecords_with_change_labels()
 
     if metadata:
+        # Inspect processed sample
+        inspect_processed_sample("data/processed/metadata.pkl", sample_index=0)
+
+        confirm_one_chip_against_raw("data/processed/metadata.pkl", sample_index=0)
+
         # Compute normalization stats
         stats = compute_normalization_stats_final("data/processed/metadata.pkl")
 
