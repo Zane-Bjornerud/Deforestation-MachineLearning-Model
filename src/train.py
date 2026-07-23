@@ -23,8 +23,8 @@ DEVICE = torch.device("cpu")
 print("Using CPU device (MPS has compatibility issues with some loss functions)")
 
 # Model configuration
-IN_CH = 18  # Your data has 18 bands
-OUT_CH = 1
+IN_CH = 18  #data has 18 bands
+OUT_CH = 1 
 
 # Loss functions
 # bce = nn.BCEWithLogitsLoss()
@@ -49,6 +49,16 @@ def train_model(train_loader, val_loader, epochs=50):
         for batch_idx, (xb, yb) in enumerate(train_loader):
             try:
                 xb, yb = xb.to(DEVICE), yb.to(DEVICE)
+                print(type(xb))
+                print("Image shape:", xb.shape)
+                print("Image dtype:", xb.dtype)
+                print("Image range:", xb.min().item(), xb.max().item())
+
+                print("Mask shape:", yb.shape)
+                print("Mask dtype:", yb.dtype)
+                print("Mask values:", torch.unique(yb))
+                break
+
                 logits = model(xb)
                 loss = bce(logits, yb) + dice_loss(logits, yb)
 

@@ -103,6 +103,11 @@ def process_tfrecords_with_change_labels():
                 example = tf.train.Example.FromString(raw_record.numpy())
                 features = example.features.feature
 
+                if chip_count == 0 and file_count == 0:
+                    for key in features.keys():
+                        if key != "label":
+                            print(key)
+
                 # Extract feature bands
                 chip_bands = []
                 band_names = []
@@ -151,6 +156,8 @@ def process_tfrecords_with_change_labels():
 
                 # Check if we have valid data
                 if len(chip_bands) > 0:
+                    for i, name in enumerate(band_names):
+                        print(f"{i}: {name}")
 
                     # Stack bands: (n_bands, height, width)
                     chip = np.stack(chip_bands, axis=0)
