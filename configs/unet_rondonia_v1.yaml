@@ -10,26 +10,197 @@ model:
 input:
   layout: CHW
   dtype: float32
-  tile_height: null
-  tile_width: null
-  expected_crs: null
-  resolution_meters: null
+  tile_height: 256
+  tile_width: 256
+  expected_crs: EPSG:32720
+  resolution_meters: 10
   nodata_value: null
 
-channels: []
+channels:
+  - index: 0
+    name: B2_pre
+    source: COPERNICUS/S2_SR_HARMONIZED
+    time_period: pre
+    native_resolution_meters: 10
+    served_resolution_meters: 10
+    raw_range: dn_unscaled
+    preprocessing: cloud_masked_median
+
+  - index: 1
+    name: B3_pre
+    source: COPERNICUS/S2_SR_HARMONIZED
+    time_period: pre
+    native_resolution_meters: 10
+    served_resolution_meters: 10
+    raw_range: dn_unscaled
+    preprocessing: cloud_masked_median
+
+  - index: 2
+    name: B4_pre
+    source: COPERNICUS/S2_SR_HARMONIZED
+    time_period: pre
+    native_resolution_meters: 10
+    served_resolution_meters: 10
+    raw_range: dn_unscaled
+    preprocessing: cloud_masked_median
+
+  - index: 3
+    name: B8_pre
+    source: COPERNICUS/S2_SR_HARMONIZED
+    time_period: pre
+    native_resolution_meters: 10
+    served_resolution_meters: 10
+    raw_range: dn_unscaled
+    preprocessing: cloud_masked_median
+
+  - index: 4
+    name: B11_pre
+    source: COPERNICUS/S2_SR_HARMONIZED
+    time_period: pre
+    native_resolution_meters: 20
+    served_resolution_meters: 10
+    raw_range: dn_unscaled
+    preprocessing: cloud_masked_median_resampled
+
+  - index: 5
+    name: B12_pre
+    source: COPERNICUS/S2_SR_HARMONIZED
+    time_period: pre
+    native_resolution_meters: 20
+    served_resolution_meters: 10
+    raw_range: dn_unscaled
+    preprocessing: cloud_masked_median_resampled
+
+  - index: 6
+    name: NDVI_pre
+    source: derived
+    time_period: pre
+    native_resolution_meters: derived
+    served_resolution_meters: 10
+    raw_range: [-1, 1]
+    preprocessing: normalized_difference
+
+  - index: 7
+    name: NBR_pre
+    source: derived
+    time_period: pre
+    native_resolution_meters: derived
+    served_resolution_meters: 10
+    raw_range: [-1, 1]
+    preprocessing: normalized_difference
+
+  - index: 8
+    name: B2_post
+    source: COPERNICUS/S2_SR_HARMONIZED
+    time_period: post
+    native_resolution_meters: 10
+    served_resolution_meters: 10
+    raw_range: dn_unscaled
+    preprocessing: cloud_masked_median
+
+  - index: 9
+    name: B3_post
+    source: COPERNICUS/S2_SR_HARMONIZED
+    time_period: post
+    native_resolution_meters: 10
+    served_resolution_meters: 10
+    raw_range: dn_unscaled
+    preprocessing: cloud_masked_median
+
+  - index: 10
+    name: B4_post
+    source: COPERNICUS/S2_SR_HARMONIZED
+    time_period: post
+    native_resolution_meters: 10
+    served_resolution_meters: 10
+    raw_range: dn_unscaled
+    preprocessing: cloud_masked_median
+
+  - index: 11
+    name: B8_post
+    source: COPERNICUS/S2_SR_HARMONIZED
+    time_period: post
+    native_resolution_meters: 10
+    served_resolution_meters: 10
+    raw_range: dn_unscaled
+    preprocessing: cloud_masked_median
+
+  - index: 12
+    name: B11_post
+    source: COPERNICUS/S2_SR_HARMONIZED
+    time_period: post
+    native_resolution_meters: 20
+    served_resolution_meters: 10
+    raw_range: dn_unscaled
+    preprocessing: cloud_masked_median_resampled
+
+  - index: 13
+    name: B12_post
+    source: COPERNICUS/S2_SR_HARMONIZED
+    time_period: post
+    native_resolution_meters: 20
+    served_resolution_meters: 10
+    raw_range: dn_unscaled
+    preprocessing: cloud_masked_median_resampled
+
+  - index: 14
+    name: NDVI_post
+    source: derived
+    time_period: post
+    native_resolution_meters: derived
+    served_resolution_meters: 10
+    raw_range: [-1, 1]
+    preprocessing: normalized_difference
+
+  - index: 15
+    name: NBR_post
+    source: derived
+    time_period: post
+    native_resolution_meters: derived
+    served_resolution_meters: 10
+    raw_range: [-1, 1]
+    preprocessing: normalized_difference
+
+  - index: 16
+    name: dNDVI
+    source: derived
+    time_period: change_post_minus_pre
+    native_resolution_meters: derived
+    served_resolution_meters: 10
+    raw_range: approximately_centered_near_0
+    preprocessing: difference
+
+  - index: 17
+    name: dNBR
+    source: derived
+    time_period: change_pre_minus_post
+    native_resolution_meters: derived
+    served_resolution_meters: 10
+    raw_range: approximately_centered_near_0
+    preprocessing: difference
 
 normalization:
-  method: null
+  method: zscore_per_channel
   means: []
   standard_deviations: []
-  clipping_min: []
-  clipping_max: []
+  clipping_min: null
+  clipping_max: null
+  statistics_file: normalization_stats.pkl
+  statistics_scope: full_dataset_pre_split
 
 output:
-  target_definition: null
+  target_definition: binary_deforestation_from_change_indices
   activation: sigmoid
-  default_threshold: null
+  default_threshold: 0.5
+  positive_pixel_definition:
+    dNBR_less_than: -0.1
+    dNDVI_less_than: -0.15
+    rule: both_conditions_required
 
 scope:
-  training_region: Rondonia, Brazil
-  training_dates: null
+  training_region: "Rondonia, Brazil"
+  training_dates:
+    pre_start: "2020-06-01"
+    pre_end: "2020-09-30"
+    post_start: "2021-06-01"
+    post_end: "2021-09-30"
