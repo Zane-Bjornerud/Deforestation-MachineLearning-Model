@@ -446,7 +446,11 @@ def load_raw_feature_arrays(example, target_size):
 def confirm_one_chip_against_raw(
     metadata_file="data/processed/metadata.pkl",
     sample_index=0,
-    channel_pairs=None,
+    channel_pairs=[
+        ("B4_1", "B4_1"),   # visible
+        ("B8_1", "B8_1"),   # infrared
+        ("dNBR", "dNBR"),   # derived
+    ],
     output_dir="debug/raw_confirmation",
 ):
     """
