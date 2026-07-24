@@ -1,0 +1,65 @@
+{
+  "sample_index": 0,
+  "chip_id": "chip_01024",
+  "chip_path": "chips/chip_01024.npy",
+  "mask_path": "masks/chip_01024.npy",
+  "source_tfrecord": null,
+  "source_record_index": null,
+  "band_names": [
+    "B2_1",
+    "B3",
+    "NBR_1",
+    "B12",
+    "B11",
+    "NBR",
+    "B3_1",
+    "NDVI_1",
+    "NDVI",
+    "B12_1",
+    "dNBR",
+    "dNDVI",
+    "B4_1",
+    "B11_1",
+    "B8_1",
+    "B2",
+    "B4",
+    "B8"
+  ],
+  "expected_channels": [
+    "B2_pre",
+    "B3_pre",
+    "B4_pre",
+    "B8_pre",
+    "B11_pre",
+    "B12_pre",
+    "NDVI_pre",
+    "NBR_pre",
+    "B2_post",
+    "B3_post",
+    "B4_post",
+    "B8_post",
+    "B11_post",
+    "B12_post",
+    "NDVI_post",
+    "NBR_post",
+    "dNDVI",
+    "dNBR"
+  ],
+  "raw_shape": [
+    18,
+    256,
+    256
+  ],
+  "processed_shape": [
+    18,
+    256,
+    256
+  ],
+  "mask_shape": [
+    1,
+    256,
+    256
+  ],
+  "device": "mps",
+  "checkpoint": "outputs/checkpoints/best_model.pth"
+}
