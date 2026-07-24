@@ -1,0 +1,35 @@
+model:
+  name: unet_rondonia
+  version: v1
+  architecture: unet
+  encoder: resnet34
+  input_channels: 18
+  output_channels: 1
+  checkpoint: models/best_model.pth
+
+input:
+  layout: CHW
+  dtype: float32
+  tile_height: null
+  tile_width: null
+  expected_crs: null
+  resolution_meters: null
+  nodata_value: null
+
+channels: []
+
+normalization:
+  method: null
+  means: []
+  standard_deviations: []
+  clipping_min: []
+  clipping_max: []
+
+output:
+  target_definition: null
+  activation: sigmoid
+  default_threshold: null
+
+scope:
+  training_region: Rondonia, Brazil
+  training_dates: null
