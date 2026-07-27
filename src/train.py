@@ -49,15 +49,16 @@ def train_model(train_loader, val_loader, epochs=50):
         for batch_idx, (xb, yb) in enumerate(train_loader):
             try:
                 xb, yb = xb.to(DEVICE), yb.to(DEVICE)
-                print(type(xb))
-                print("Image shape:", xb.shape)
-                print("Image dtype:", xb.dtype)
-                print("Image range:", xb.min().item(), xb.max().item())
 
-                print("Mask shape:", yb.shape)
-                print("Mask dtype:", yb.dtype)
-                print("Mask values:", torch.unique(yb))
-                break
+                if args.inspect_first_batch and epoch == 0 and batch_idx == 0:
+                    print(type(xb))
+                    print("Image shape:", xb.shape)
+                    print("Image dtype:", xb.dtype)
+                    print("Image range:", xb.min().item(), xb.max().item())
+
+                    print("Mask shape:", yb.shape)
+                    print("Mask dtype:", yb.dtype)
+                    print("Mask values:", torch.unique(yb))
 
                 logits = model(xb)
                 loss = bce(logits, yb) + dice_loss(logits, yb)
