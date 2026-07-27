@@ -116,3 +116,4 @@ An input must be rejected when:
 - Normalization statistics are computed before splitting, introducing potential evaluation leakage.
 - Per-chip georeferencing fields such as transform and bounds are not preserved in current numpy chip format.
 - Actual per-chip channel order can vary unless explicitly re-ordered; metadata band_names is the local source of truth.
+- The currently-trained checkpoint (`best_model.pth`) was trained on chips processed from the legacy TFRecords in `data/*.tfrecord`. Those chips have all 18 canonical band *names* (see `src/band_names.py`), but their channel *order* is a fixed legacy order, not the index order shown in section 4 above — the model's learned weights are keyed to that legacy position, so don't assume position 0 is `B2_pre` for this checkpoint. A fresh export via `scripts/gee_export_chips.py` produces the exact canonical order in section 4; using that data requires retraining before section 4's index column applies literally.

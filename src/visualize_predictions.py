@@ -38,17 +38,13 @@ for i in range(5):
         pred_prob = torch.sigmoid(pred_logits).cpu().numpy()[0, 0]
         pred_mask = (pred_prob > 0.5).astype(float)
 
-    # Find RGB bands for visualization
+    # Find RGB bands for visualization (post-period true color)
     band_names = val_dataset.metadata[i]["band_names"]
-    try:
-        b4_idx = band_names.index("B4_1")
-        b3_idx = band_names.index("B3_1")
-        b2_idx = band_names.index("B2_1")
-        rgb = chip[[b4_idx, b3_idx, b2_idx]].permute(1, 2, 0).numpy()
-        rgb = np.clip((rgb - rgb.min()) / (rgb.max() - rgb.min() + 1e-8), 0, 1)
-    except:
-        rgb = chip[[12, 6, 0]].permute(1, 2, 0).numpy()
-        rgb = np.clip((rgb - rgb.min()) / (rgb.max() - rgb.min() + 1e-8), 0, 1)
+    b4_idx = band_names.index("B4_post")
+    b3_idx = band_names.index("B3_post")
+    b2_idx = band_names.index("B2_post")
+    rgb = chip[[b4_idx, b3_idx, b2_idx]].permute(1, 2, 0).numpy()
+    rgb = np.clip((rgb - rgb.min()) / (rgb.max() - rgb.min() + 1e-8), 0, 1)
 
     # Plot
     axes[i, 0].imshow(rgb)

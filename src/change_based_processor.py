@@ -1,11 +1,15 @@
 import numpy as np
 import os
+import sys
 import pickle
 from pathlib import Path
 import tensorflow as tf
 from scipy import ndimage
 import math
 import matplotlib.pyplot as plt
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from band_names import canonicalize_band_names, legacy_to_canonical
 
 
 def inspect_processed_sample(
@@ -238,6 +242,13 @@ def process_tfrecords_with_change_labels():
 
                 # Check if we have valid data
                 if len(chip_bands) > 0:
+                    # TFRecord feature keys are the raw legacy names (bare
+                    # for pre, "_1"-suffixed for post); rename to the
+                    # canonical _pre/_post convention without touching band
+                    # order, so channel positions stay compatible with
+                    # already-trained checkpoints.
+                    band_names = canonicalize_band_names(band_names)
+
                     for i, name in enumerate(band_names):
                         print(f"{i}: {name}")
 
@@ -418,7 +429,7 @@ def compute_normalization_stats_final(metadata_file, n_samples=100):
     return stats
 
 def load_raw_feature_arrays(example, target_size):
-    """Extract raw feature arrays from one TFRecord example."""
+    """Extract raw feature arrays from one TFRecord example, keyed by canonical band name."""
     raw_arrays = {}
 
     for key, feature in example.features.feature.items():
@@ -438,7 +449,7 @@ def load_raw_feature_arrays(example, target_size):
         if band.shape != target_size:
             band = resize_array(band, target_size)
 
-        raw_arrays[key] = band
+        raw_arrays[legacy_to_canonical(key)] = band
 
     return raw_arrays
 
@@ -447,9 +458,9 @@ def confirm_one_chip_against_raw(
     metadata_file="data/processed/metadata.pkl",
     sample_index=0,
     channel_pairs=[
-        ("B4_1", "B4_1"),   # visible
-        ("B8_1", "B8_1"),   # infrared
-        ("dNBR", "dNBR"),   # derived
+        ("B4_post", "B4_post"),   # visible
+        ("B8_post", "B8_post"),   # infrared
+        ("dNBR", "dNBR"),         # derived
     ],
     output_dir="debug/raw_confirmation",
 ):
@@ -458,8 +469,11 @@ def confirm_one_chip_against_raw(
 
     channel_pairs should be a list of:
         (raw_band_name, processed_band_name)
+    Both are canonical names now (load_raw_feature_arrays renames raw keys
+    the same way the processor does), so in practice the pair is usually
+    the same name twice.
     Example:
-        [("B4_1", "B4_1"), ("B8_1", "B8_1"), ("dNBR", "dNBR")]
+        [("B4_post", "B4_post"), ("B8_post", "B8_post"), ("dNBR", "dNBR")]
     """
 
     os.makedirs(output_dir, exist_ok=True)
@@ -493,8 +507,8 @@ def confirm_one_chip_against_raw(
 
     if channel_pairs is None:
         channel_pairs = [
-            ("B4_1", "B4_1"),
-            ("B8_1", "B8_1"),
+            ("B4_post", "B4_post"),
+            ("B8_post", "B8_post"),
             ("dNBR", "dNBR"),
         ]
 

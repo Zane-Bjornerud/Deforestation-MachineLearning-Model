@@ -1,9 +1,30 @@
+import os
+import sys
 import torch
 import numpy as np
 from torch.utils.data import Dataset
 import pickle
 import albumentations as A
 from albumentations.pytorch import ToTensorV2
+
+# Allow `from band_names import ...` whether this module is imported as
+# `src.dataset` (e.g. from scripts/, with the repo root on sys.path) or as
+# a bare sibling module (e.g. `python src/train.py`, with src/ on sys.path).
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from band_names import CANONICAL_BAND_SET
+
+
+def _validate_band_names(metadata):
+    """Raise early if any chip's band_names aren't the canonical 18 bands."""
+    for item in metadata:
+        band_set = set(item["band_names"])
+        if band_set != CANONICAL_BAND_SET:
+            raise ValueError(
+                f"chip {item.get('chip_id')} has non-canonical band_names "
+                f"{item['band_names']}; expected the 18 canonical bands "
+                f"(mismatch: {sorted(band_set ^ CANONICAL_BAND_SET)}). "
+                "Re-run the TFRecord processor to canonicalize band names."
+            )
 
 
 class DeforestationDataset(Dataset):
@@ -28,6 +49,8 @@ class DeforestationDataset(Dataset):
         # Load metadata
         with open(metadata_file, "rb") as f:
             self.metadata = pickle.load(f)
+
+        _validate_band_names(self.metadata)
 
         # Filter for positive samples if requested
         if filter_positives:
@@ -122,6 +145,8 @@ class BalancedDeforestationDataset(Dataset):
         # Load metadata
         with open(metadata_file, "rb") as f:
             all_metadata = pickle.load(f)
+
+        _validate_band_names(all_metadata)
 
         # Split into positive and negative samples
         self.pos_samples = [x for x in all_metadata if x["has_deforestation"]]

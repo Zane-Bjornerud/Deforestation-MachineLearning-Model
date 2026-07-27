@@ -28,37 +28,25 @@ def visualize_chips():
         chip = np.load(chip_path)  # Shape: (18, 256, 256)
         mask = np.load(mask_path)  # Shape: (1, 256, 256)
 
-        # Band indices (approximately - may need adjustment based on actual band order)
-        # From the output: ['B2_1', 'B3', 'NBR_1', 'B12', 'B11', 'NBR', 'B3_1', 'NDVI_1', 'NDVI', 'B12_1', 'dNBR', 'dNDVI', 'B4_1', 'B11_1', 'B8_1', 'B2', 'B4', 'B8']
-
-        # Find indices for visualization
+        # Find indices for visualization (canonical band names; order varies
+        # per metadata file, so always look up by name, never by position)
         band_names = metadata[i]["band_names"]
 
-        # RGB composite (using post-period bands: B4_1, B3_1, B2_1)
-        try:
-            b4_idx = band_names.index("B4_1")  # Red
-            b3_idx = band_names.index("B3_1")  # Green
-            b2_idx = band_names.index("B2_1")  # Blue
+        # RGB composite (using post-period bands: B4_post, B3_post, B2_post)
+        b4_idx = band_names.index("B4_post")  # Red
+        b3_idx = band_names.index("B3_post")  # Green
+        b2_idx = band_names.index("B2_post")  # Blue
 
-            rgb = np.stack([chip[b4_idx], chip[b3_idx], chip[b2_idx]], axis=2)
-            rgb = np.clip(rgb / 3000, 0, 1)  # Normalize for display
-
-        except ValueError:
-            # Fallback if band names don't match
-            rgb = np.stack([chip[12], chip[6], chip[0]], axis=2)  # Approximate
-            rgb = np.clip(rgb / 3000, 0, 1)
+        rgb = np.stack([chip[b4_idx], chip[b3_idx], chip[b2_idx]], axis=2)
+        rgb = np.clip(rgb / 3000, 0, 1)  # Normalize for display
 
         axes[i, 0].imshow(rgb)
         axes[i, 0].set_title(f"Chip {i+1}: RGB (Post-2021)")
         axes[i, 0].axis("off")
 
         # NDVI post
-        try:
-            ndvi_post_idx = band_names.index("NDVI_1")
-            ndvi_post = chip[ndvi_post_idx]
-        except ValueError:
-            ndvi_post_idx = 7  # Fallback
-            ndvi_post = chip[ndvi_post_idx]
+        ndvi_post_idx = band_names.index("NDVI_post")
+        ndvi_post = chip[ndvi_post_idx]
 
         im1 = axes[i, 1].imshow(ndvi_post, cmap="RdYlGn", vmin=0, vmax=1)
         axes[i, 1].set_title("NDVI (Post)")

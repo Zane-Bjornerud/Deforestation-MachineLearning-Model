@@ -13,6 +13,7 @@ import torch
 import segmentation_models_pytorch as smp
 
 from src.dataset import DeforestationDataset
+from src.band_names import CANONICAL_BAND_ORDER
 
 
 DATA_DIR = "data/processed"
@@ -22,26 +23,11 @@ CHECKPOINT_FILE = "outputs/checkpoints/best_model.pth"
 OUTPUT_ROOT = Path("artifacts/inspection")
 SAMPLE_INDEX = 0
 
-EXPECTED_CHANNELS = [
-    "B2_pre",
-    "B3_pre",
-    "B4_pre",
-    "B8_pre",
-    "B11_pre",
-    "B12_pre",
-    "NDVI_pre",
-    "NBR_pre",
-    "B2_post",
-    "B3_post",
-    "B4_post",
-    "B8_post",
-    "B11_post",
-    "B12_post",
-    "NDVI_post",
-    "NBR_post",
-    "dNDVI",
-    "dNBR",
-]
+# The canonical 18 bands, in the order a fresh export (scripts/gee_export_chips.py)
+# produces them. Chips processed from the legacy TFRecords have the same 18
+# canonical names (see src/band_names.py) but not necessarily this same order,
+# since their positions are frozen to match the already-trained checkpoint.
+EXPECTED_CHANNELS = CANONICAL_BAND_ORDER
 
 
 def safe_mkdir(path: Path) -> None:
@@ -70,21 +56,12 @@ def write_stats_csv(path: Path, band_names, arrays):
 
 def pick_rgb_indices(band_names):
     preferred = ["B4_pre", "B3_pre", "B2_pre"]
-    indices = []
-    for name in preferred:
-        if name in band_names:
-            indices.append(band_names.index(name))
-    if len(indices) == 3:
-        return indices
-
-    fallback = []
-    for name in ["B4_1", "B3_1", "B2_1", "B4", "B3", "B2"]:
-        if name in band_names:
-            fallback.append(band_names.index(name))
-    if len(fallback) >= 3:
-        return fallback[:3]
-
-    return [2, 1, 0]
+    indices = [band_names.index(name) for name in preferred if name in band_names]
+    if len(indices) != 3:
+        raise ValueError(
+            f"Expected canonical bands {preferred} in band_names, got {band_names}"
+        )
+    return indices
 
 
 def make_rgb(chip_tensor, band_names):
