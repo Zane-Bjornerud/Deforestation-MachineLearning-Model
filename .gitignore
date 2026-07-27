@@ -4,14 +4,14 @@ venv/
 .venv/
 .env/
 
-# --- Python cache/artifacts ---
+# --- Python cache / local artifacts ---
 __pycache__/
 *.pyc
 *.pyo
 *.pyd
 .Python
 
-# --- OS / Editor ---
+# --- OS / editor noise ---
 .DS_Store
 *.swp
 *.swo
@@ -24,7 +24,10 @@ logs/
 tmp/
 .cache/
 
-# --- Outputs / models / checkpoints ---
+# --- Generated outputs and experiment artifacts ---
+artifacts/
+debug/
+raw_confirmation/
 outputs/
 models/
 checkpoints/
@@ -35,10 +38,16 @@ checkpoints/
 *.onnx
 *.pb
 
-# --- Data (ignored by default) ---
-data/**
-# Keep only metadata or small files explicitly
+# --- Large data products ---
+data/raw/
+data/processed/
+data/manifests/
+*.npy
+*.tfrecord
+
+# Keep only lightweight metadata and examples tracked
 !data/.gitkeep
 !data/README.md
 !data/manifest.tsv
+!data/sample/
 !data/sample/**
