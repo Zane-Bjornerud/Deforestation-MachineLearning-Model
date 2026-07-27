@@ -13,7 +13,7 @@ from band_names import canonicalize_band_names, legacy_to_canonical
 
 
 def inspect_processed_sample(
-    metadata_file="data/processed/metadata.pkl",
+    metadata_file,
     sample_index=0,
     output_dir="debug/channels",
 ):
@@ -21,12 +21,14 @@ def inspect_processed_sample(
 
     os.makedirs(output_dir, exist_ok=True)
 
+    base_dir = os.path.dirname(metadata_file)
+
     with open(metadata_file, "rb") as f:
         metadata = pickle.load(f)
 
     item = metadata[sample_index]
-    image = np.load(f"data/processed/{item['chip_path']}")
-    mask = np.load(f"data/processed/{item['mask_path']}")
+    image = np.load(os.path.join(base_dir, item["chip_path"]))
+    mask = np.load(os.path.join(base_dir, item["mask_path"]))
     band_names = item["band_names"]
 
     print(f"Chip id: {item['chip_id']}")
@@ -141,20 +143,29 @@ def create_deforestation_labels_from_change(
         return np.zeros((chip_data.shape[1], chip_data.shape[2]), dtype=np.float32)
 
 
-def process_tfrecords_with_change_labels():
-    """Process TFRecords using change-based deforestation labels."""
+def process_tfrecords_with_change_labels(input_glob, output_dir):
+    """Process TFRecords using change-based deforestation labels.
+
+    Args:
+        input_glob: Explicit glob pattern for input TFRecords, e.g.
+            "data/raw/gee_canary_gfc_v1/*.tfrecord". No default is provided
+            on purpose - callers must not accidentally sweep in every
+            TFRecord under data/.
+        output_dir: Directory to write chips/, masks/, and metadata.pkl to,
+            e.g. "data/processed/gee_canary_gfc_v1".
+    """
 
     print("=== Change-Based Deforestation Processor ===\n")
 
-    # Find TFRecord files
-    tfrecord_files = list(Path("data").glob("*.tfrecord"))
+    # Find TFRecord files matching the explicit input glob only
+    tfrecord_files = sorted(Path().glob(input_glob))
     print(f"Found {len(tfrecord_files)} files:")
     for f in tfrecord_files:
         print(f"  {f.name}")
 
     # Create output directories
-    os.makedirs("data/processed/chips", exist_ok=True)
-    os.makedirs("data/processed/masks", exist_ok=True)
+    os.makedirs(f"{output_dir}/chips", exist_ok=True)
+    os.makedirs(f"{output_dir}/masks", exist_ok=True)
 
     all_metadata = []
     chip_count = 0
@@ -265,8 +276,8 @@ def process_tfrecords_with_change_labels():
 
                     # Save chip and mask
                     chip_id = f"chip_{chip_count:05d}"
-                    chip_path = f"data/processed/chips/{chip_id}.npy"
-                    mask_path = f"data/processed/masks/{chip_id}.npy"
+                    chip_path = f"{output_dir}/chips/{chip_id}.npy"
+                    mask_path = f"{output_dir}/masks/{chip_id}.npy"
 
                     np.save(chip_path, chip.astype(np.float32))
                     np.save(mask_path, mask.astype(np.float32))
@@ -324,7 +335,7 @@ def process_tfrecords_with_change_labels():
         print(f"Extracted {file_count} chips from {tfrecord_file.name}")
 
     # Save metadata
-    metadata_path = "data/processed/metadata.pkl"
+    metadata_path = f"{output_dir}/metadata.pkl"
     with open(metadata_path, "wb") as f:
         pickle.dump(all_metadata, f)
 
@@ -357,8 +368,8 @@ def process_tfrecords_with_change_labels():
 
     print(f"\nFiles saved:")
     print(f"  Metadata: {metadata_path}")
-    print(f"  Chips: data/processed/chips/ ({chip_count} files)")
-    print(f"  Masks: data/processed/masks/ ({chip_count} files)")
+    print(f"  Chips: {output_dir}/chips/ ({chip_count} files)")
+    print(f"  Masks: {output_dir}/masks/ ({chip_count} files)")
 
     if chip_count > 0 and n_with_defor > 0:
         print("\nProcessing successful with deforestation detected!")
@@ -388,9 +399,11 @@ def compute_normalization_stats_final(metadata_file, n_samples=100):
 
     print(f"Using {sample_size} chips for statistics...")
 
+    base_dir = os.path.dirname(metadata_file)
+
     all_chips = []
     for idx in sample_indices:
-        chip_path = f"data/processed/{metadata[idx]['chip_path']}"
+        chip_path = os.path.join(base_dir, metadata[idx]["chip_path"])
         chip = np.load(chip_path)
         all_chips.append(chip)
 
@@ -420,7 +433,7 @@ def compute_normalization_stats_final(metadata_file, n_samples=100):
     }
 
     # Save statistics
-    stats_path = "data/processed/normalization_stats.pkl"
+    stats_path = os.path.join(base_dir, "normalization_stats.pkl")
     with open(stats_path, "wb") as f:
         pickle.dump(stats, f)
 
@@ -455,7 +468,7 @@ def load_raw_feature_arrays(example, target_size):
 
 
 def confirm_one_chip_against_raw(
-    metadata_file="data/processed/metadata.pkl",
+    metadata_file,
     sample_index=0,
     channel_pairs=[
         ("B4_post", "B4_post"),   # visible
@@ -478,11 +491,13 @@ def confirm_one_chip_against_raw(
 
     os.makedirs(output_dir, exist_ok=True)
 
+    base_dir = os.path.dirname(metadata_file)
+
     with open(metadata_file, "rb") as f:
         metadata = pickle.load(f)
 
     item = metadata[sample_index]
-    image = np.load(f"data/processed/{item['chip_path']}")
+    image = np.load(os.path.join(base_dir, item["chip_path"]))
     band_names = item["band_names"]
     target_size = image.shape[1:]
 
@@ -514,7 +529,7 @@ def confirm_one_chip_against_raw(
 
     print("\n=== RAW TO PROCESSED CHANNEL CONFIRMATION ===")
     print(f"Chip id: {item['chip_id']}")
-    print(f"Processed chip path: data/processed/{item['chip_path']}")
+    print(f"Processed chip path: {os.path.join(base_dir, item['chip_path'])}")
     print(f"Raw TFRecord: {raw_tfrecord_path}")
     print(f"Raw record index: {raw_record_index}")
     print("\nProcessed band order:")
@@ -586,6 +601,25 @@ def confirm_one_chip_against_raw(
 
 
 if __name__ == "__main__":
+    import argparse
+
+    parser = argparse.ArgumentParser(
+        description="Change-based deforestation TFRecord processor"
+    )
+    parser.add_argument(
+        "--input-glob",
+        required=True,
+        help="Explicit glob for input TFRecords, e.g. "
+        "data/raw/gee_canary_gfc_v1/*.tfrecord",
+    )
+    parser.add_argument(
+        "--output-dir",
+        required=True,
+        help="Directory to write chips/, masks/, and metadata.pkl to, e.g. "
+        "data/processed/gee_canary_gfc_v1",
+    )
+    args = parser.parse_args()
+
     # Install scipy if needed
     try:
         from scipy import ndimage
@@ -597,16 +631,18 @@ if __name__ == "__main__":
         from scipy import ndimage
 
     # Process TFRecords
-    metadata = process_tfrecords_with_change_labels()
+    metadata = process_tfrecords_with_change_labels(args.input_glob, args.output_dir)
 
     if metadata:
-        # Inspect processed sample
-        inspect_processed_sample("data/processed/metadata.pkl", sample_index=0)
+        metadata_path = f"{args.output_dir}/metadata.pkl"
 
-        confirm_one_chip_against_raw("data/processed/metadata.pkl", sample_index=0)
+        # Inspect processed sample
+        inspect_processed_sample(metadata_path, sample_index=0)
+
+        confirm_one_chip_against_raw(metadata_path, sample_index=0)
 
         # Compute normalization stats
-        stats = compute_normalization_stats_final("data/processed/metadata.pkl")
+        stats = compute_normalization_stats_final(metadata_path)
 
         print(f"\nData processing complete")
         print("\nNext steps:")
