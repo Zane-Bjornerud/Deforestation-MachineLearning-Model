@@ -9,7 +9,15 @@ import math
 import matplotlib.pyplot as plt
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from band_names import canonicalize_band_names, legacy_to_canonical
+from band_names import CANONICAL_BAND_ORDER, legacy_to_canonical, raw_bands_to_canonical_order
+from dataset_contract import (
+    assert_no_label_source_conflict,
+    load_contract,
+    validate_processor_identity,
+    write_dataset_manifest,
+)
+
+PROCESSOR_NAME = "change_based_processor"
 
 
 def inspect_processed_sample(
@@ -143,19 +151,23 @@ def create_deforestation_labels_from_change(
         return np.zeros((chip_data.shape[1], chip_data.shape[2]), dtype=np.float32)
 
 
-def process_tfrecords_with_change_labels(input_glob, output_dir):
+def process_tfrecords_with_change_labels(dataset_id):
     """Process TFRecords using change-based deforestation labels.
 
     Args:
-        input_glob: Explicit glob pattern for input TFRecords, e.g.
-            "data/raw/gee_canary_gfc_v1/*.tfrecord". No default is provided
-            on purpose - callers must not accidentally sweep in every
-            TFRecord under data/.
-        output_dir: Directory to write chips/, masks/, and metadata.pkl to,
-            e.g. "data/processed/gee_canary_gfc_v1".
+        dataset_id: Dataset contract id, e.g. "legacy_threshold_v1". Looked
+            up under configs/datasets/<dataset_id>.yaml, which supplies the
+            input glob (raw_path/*.tfrecord), output_dir (processed_path),
+            and the dNBR/dNDVI thresholds recorded alongside every chip.
     """
 
     print("=== Change-Based Deforestation Processor ===\n")
+
+    contract = load_contract(dataset_id)
+    validate_processor_identity(contract, PROCESSOR_NAME)
+
+    input_glob = f"{contract.raw_path}/*.tfrecord"
+    output_dir = contract.processed_path
 
     # Find TFRecord files matching the explicit input glob only
     tfrecord_files = sorted(Path().glob(input_glob))
@@ -171,21 +183,15 @@ def process_tfrecords_with_change_labels(input_glob, output_dir):
     chip_count = 0
     target_size = (256, 256)
 
-    # Different thresholds to try
-    thresholds = {
-        "conservative": {"dnbr": -0.2, "dndvi": -0.25},  # Strict criteria
-        "moderate": {"dnbr": -0.15, "dndvi": -0.2},  # Balanced
-        "sensitive": {"dnbr": -0.1, "dndvi": -0.15},  # Catches more cases
-    }
+    dnbr_thresh = contract.extra["dnbr_threshold"]
+    dndvi_thresh = contract.extra["dndvi_threshold"]
+    threshold_profile = contract.extra.get("threshold_profile", "custom")
 
-    # Use moderate thresholds
-    selected_threshold = "sensitive"
-    dnbr_thresh = thresholds[selected_threshold]["dnbr"]
-    dndvi_thresh = thresholds[selected_threshold]["dndvi"]
-
-    print(f"Using {selected_threshold} thresholds:")
+    print(f"Using {threshold_profile} thresholds (from contract {dataset_id}):")
     print(f"  dNBR < {dnbr_thresh}")
     print(f"  dNDVI < {dndvi_thresh}")
+
+    assert_no_label_source_conflict(output_dir, contract.label_source)
 
     # Process each TFRecord file
     for tfrecord_file in tfrecord_files:
@@ -205,9 +211,11 @@ def process_tfrecords_with_change_labels(input_glob, output_dir):
                         if key != "label":
                             print(key)
 
-                # Extract feature bands
-                chip_bands = []
-                band_names = []
+                # Extract feature bands into a dict keyed by raw band name.
+                # Order is NOT decided here -- dict/protobuf map iteration
+                # order is not a channel-order guarantee. Channel order is
+                # fixed below via raw_bands_to_canonical_order.
+                raw_bands = {}
 
                 # Process all features
                 for key, feature in features.items():
@@ -225,20 +233,26 @@ def process_tfrecords_with_change_labels(input_glob, output_dir):
                         # Resize to target size if needed
                         if (band_size, band_size) != target_size:
                             band_resized = resize_array(band_reshaped, target_size)
-                            if chip_count == 0 and len(chip_bands) == 0:
+                            if chip_count == 0 and len(raw_bands) == 0:
                                 print(
                                     f"Resizing features from {band_size}x{band_size} to {target_size[0]}x{target_size[1]}"
                                 )
                         else:
                             band_resized = band_reshaped
 
-                        chip_bands.append(band_resized)
-                        band_names.append(key)
+                        raw_bands[key] = band_resized
 
                     elif feature.HasField("bytes_list"):
-                        # Handle bytes features (shouldn't be many besides original label)
+                        # Handle bytes features (shouldn't be many besides
+                        # original label, which is skipped above). GEE
+                        # byte-encodes with .toByte() -> UINT8, not float32 --
+                        # a float32 read silently corrupts the data (see
+                        # GFC_process_tfrecords4.py's label parsing for the
+                        # concrete failure mode this caused there).
                         data = feature.bytes_list.value[0]
-                        band_array = np.frombuffer(data, dtype=np.float32)
+                        band_array = np.frombuffer(data, dtype=np.uint8).astype(
+                            np.float32
+                        )
 
                         band_size = int(np.sqrt(len(band_array)))
                         band_reshaped = band_array.reshape(band_size, band_size)
@@ -248,23 +262,28 @@ def process_tfrecords_with_change_labels(input_glob, output_dir):
                         else:
                             band_resized = band_reshaped
 
-                        chip_bands.append(band_resized)
-                        band_names.append(key)
+                        raw_bands[key] = band_resized
 
                 # Check if we have valid data
-                if len(chip_bands) > 0:
-                    # TFRecord feature keys are the raw legacy names (bare
-                    # for pre, "_1"-suffixed for post); rename to the
-                    # canonical _pre/_post convention without touching band
-                    # order, so channel positions stay compatible with
-                    # already-trained checkpoints.
-                    band_names = canonicalize_band_names(band_names)
+                if len(raw_bands) > 0:
+                    # Fix channel order explicitly from src/band_names.py --
+                    # never from feature/dict iteration order. Handles both
+                    # legacy bare/_1 raw names and already-canonical names.
+                    chip_bands, band_names = raw_bands_to_canonical_order(raw_bands)
 
                     for i, name in enumerate(band_names):
                         print(f"{i}: {name}")
 
                     # Stack bands: (n_bands, height, width)
                     chip = np.stack(chip_bands, axis=0)
+                    assert chip.shape == (len(CANONICAL_BAND_ORDER), *target_size), (
+                        f"chip {chip_count}: expected shape "
+                        f"{(len(CANONICAL_BAND_ORDER), *target_size)}, got {chip.shape}"
+                    )
+                    assert band_names == CANONICAL_BAND_ORDER, (
+                        f"chip {chip_count}: band_names {band_names} != "
+                        f"CANONICAL_BAND_ORDER {CANONICAL_BAND_ORDER}"
+                    )
 
                     # Create deforestation mask from change indices
                     defor_mask = create_deforestation_labels_from_change(
@@ -298,7 +317,11 @@ def process_tfrecords_with_change_labels(input_glob, output_dir):
         "patch_size": target_size[0],
         "n_bands": len(chip_bands),
         "band_names": band_names,
-        "labeling_method": f"change_indices_{selected_threshold}",
+        "dataset_id": contract.dataset_id,
+        "label_mode": contract.label_mode,
+        "label_source": contract.label_source,
+        "label_contract_version": contract.label_contract_version,
+        "threshold_profile": threshold_profile,
         "thresholds_used": {
             "dnbr": dnbr_thresh,
             "dndvi": dndvi_thresh,
@@ -363,7 +386,7 @@ def process_tfrecords_with_change_labels(input_glob, output_dir):
             print(f"  Max: {max(defor_fractions):.3%}")
             print(f"  Mean: {np.mean(defor_fractions):.3%}")
 
-        print(f"\nLabeling method: Change indices with {selected_threshold} thresholds")
+        print(f"\nLabeling method: Change indices with {threshold_profile} thresholds")
         print(f"Thresholds used: dNBR < {dnbr_thresh}, dNDVI < {dndvi_thresh}")
 
     print(f"\nFiles saved:")
@@ -452,7 +475,9 @@ def load_raw_feature_arrays(example, target_size):
         if feature.HasField("float_list"):
             values = np.array(feature.float_list.value, dtype=np.float32)
         elif feature.HasField("bytes_list"):
-            values = np.frombuffer(feature.bytes_list.value[0], dtype=np.float32)
+            values = np.frombuffer(feature.bytes_list.value[0], dtype=np.uint8).astype(
+                np.float32
+            )
         else:
             continue
 
@@ -607,16 +632,11 @@ if __name__ == "__main__":
         description="Change-based deforestation TFRecord processor"
     )
     parser.add_argument(
-        "--input-glob",
+        "--dataset-id",
         required=True,
-        help="Explicit glob for input TFRecords, e.g. "
-        "data/raw/gee_canary_gfc_v1/*.tfrecord",
-    )
-    parser.add_argument(
-        "--output-dir",
-        required=True,
-        help="Directory to write chips/, masks/, and metadata.pkl to, e.g. "
-        "data/processed/gee_canary_gfc_v1",
+        help="Dataset contract id under configs/datasets/, e.g. "
+        "legacy_threshold_v1. Supplies the input glob, output dir, and "
+        "dNBR/dNDVI thresholds.",
     )
     args = parser.parse_args()
 
@@ -631,10 +651,12 @@ if __name__ == "__main__":
         from scipy import ndimage
 
     # Process TFRecords
-    metadata = process_tfrecords_with_change_labels(args.input_glob, args.output_dir)
+    metadata = process_tfrecords_with_change_labels(args.dataset_id)
 
     if metadata:
-        metadata_path = f"{args.output_dir}/metadata.pkl"
+        contract = load_contract(args.dataset_id)
+        output_dir = contract.processed_path
+        metadata_path = f"{output_dir}/metadata.pkl"
 
         # Inspect processed sample
         inspect_processed_sample(metadata_path, sample_index=0)
@@ -644,10 +666,13 @@ if __name__ == "__main__":
         # Compute normalization stats
         stats = compute_normalization_stats_final(metadata_path)
 
+        manifest_path = write_dataset_manifest(output_dir, contract, metadata)
+        print(f"Dataset manifest: {manifest_path}")
+
         print(f"\nData processing complete")
         print("\nNext steps:")
-        print("1. python src/split_data.py")
-        print("2. python src/train.py")
+        print(f"1. python src/split_data.py --dataset-id {args.dataset_id}")
+        print(f"2. python src/train.py --experiment <experiment_id>")
         print("3. jupyter notebook notebooks/explore_data.ipynb")
     else:
         print("No deforestation detected. Consider adjusting thresholds")

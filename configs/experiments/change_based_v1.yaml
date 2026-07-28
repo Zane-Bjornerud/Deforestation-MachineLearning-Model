@@ -1,0 +1,6 @@
+experiment_id: change_based_v1
+dataset_id: legacy_threshold_v1
+checkpoint_dir: outputs/checkpoints/change_based_v1
+epochs: 20
+batch_size: 2
+learning_rate: 1.0e-4

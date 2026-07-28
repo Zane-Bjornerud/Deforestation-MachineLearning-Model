@@ -1,0 +1,9 @@
+experiment_id: hansen_loss_v1
+# existing_gfc_recovery_v0 is the only hansen_loss dataset with raw TFRecords
+# already downloaded locally. Swap to gee_full_gfc_v1 once that export is
+# downloaded and processed, for the real Phase 1 comparison.
+dataset_id: existing_gfc_recovery_v0
+checkpoint_dir: outputs/checkpoints/hansen_loss_v1
+epochs: 20
+batch_size: 2
+learning_rate: 1.0e-4

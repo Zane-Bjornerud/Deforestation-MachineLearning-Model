@@ -7,21 +7,50 @@ Run in the `deforest` conda env (has earthengine-api installed):
     conda activate deforest
     python scripts/gee_export_chips.py
 
+All label parameters (Hansen asset version, forest cover threshold, target
+year, pre/post composite windows) come from the dataset contract at
+configs/datasets/<DATASET_ID>.yaml -- that file is the single source of
+truth, not this script. Edit the contract, not the constants here, to change
+the label definition.
+
 Output lands in Google Drive under DRIVE_FOLDER as sharded .tfrecord files,
 matching the format src/GFC_process_tfrecords4.py already knows how to parse
 (named float bands + a single byte-valued "label" band).
 
 After the task completes (check with scripts/gee_check_tasks.py), download
-the files from Drive into data/.
+the files from Drive into data/raw/<DATASET_ID>/ (the contract's raw_path).
+Then run:
+    python src/GFC_process_tfrecords4.py --dataset-id <DATASET_ID>
 """
 
-import ee
 import json
 import os
+import subprocess
+import sys
+from datetime import datetime, timezone
+
+import ee
+
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "src"))
+from band_names import CANONICAL_BAND_ORDER
+from dataset_contract import LABEL_MODE_HANSEN, load_contract
 
 # --- Config -----------------------------------------------------------------
 
 PROJECT = "decent-being-438620-b7"
+
+# EDIT ME: which dataset contract this run produces. Must have a matching
+# configs/datasets/<DATASET_ID>.yaml with label_mode: hansen_loss.
+# "gee_canary_gfc_v1" for a small test export, "gee_full_gfc_v1" for the real
+# Phase 1 export.
+DATASET_ID = "gee_canary_gfc_v1"
+
+CONTRACT = load_contract(DATASET_ID)
+if CONTRACT.label_mode != LABEL_MODE_HANSEN:
+    raise ValueError(
+        f"{DATASET_ID}: this script only produces hansen_loss datasets, "
+        f"contract says label_mode={CONTRACT.label_mode!r}"
+    )
 
 # EDIT ME: rough Rondonia deforestation-frontier bounding box. Narrow this to
 # your actual area of interest before running a real export.
@@ -33,14 +62,12 @@ AOI_COORDS = [
 ]
 CRS = "EPSG:32720"  # UTM 20S, covers most of Rondonia; adjust if AOI moves
 
-# Pre/post imagery windows (dry season = fewer clouds in the Amazon)
-PRE_START, PRE_END = "2020-06-01", "2020-09-30"
-POST_START, POST_END = "2021-06-01", "2021-09-30"
-
-# Hansen Global Forest Change: label = forest in 2000 that was lost in TARGET_LOSS_YEAR
-GFC_ASSET = "UMD/hansen/global_forest_change_2025_v1_13"  # latest as of 2026; bump the year/version as Hansen releases new ones
-TARGET_LOSS_YEAR = 2021
-FOREST_COVER_THRESHOLD = 30  # % tree cover in 2000 required to count as forest
+# Pre/post imagery windows and Hansen label parameters, from the contract.
+PRE_START, PRE_END = CONTRACT.extra["pre_start"], CONTRACT.extra["pre_end"]
+POST_START, POST_END = CONTRACT.extra["post_start"], CONTRACT.extra["post_end"]
+GFC_ASSET = CONTRACT.extra["gfc_asset"]
+TARGET_LOSS_YEAR = CONTRACT.target_year
+FOREST_COVER_THRESHOLD = CONTRACT.extra["forest_cover_threshold"]
 
 MAX_CLOUD_PROB = 40  # from COPERNICUS/S2_CLOUD_PROBABILITY, 0-100
 
@@ -48,34 +75,21 @@ PATCH_SIZE = 256
 SCALE = 10  # meters/pixel
 
 DRIVE_FOLDER = "deforest_export"
-FILE_PREFIX = f"rondonia_deforest_chips_{TARGET_LOSS_YEAR}"
+FILE_PREFIX = f"{DATASET_ID}_{TARGET_LOSS_YEAR}"
 
 S2_BANDS = ["B2", "B3", "B4", "B8", "B11", "B12"]
 
-EXPORT_METADATA = {
-    "project": PROJECT,
-    "file_prefix": FILE_PREFIX,
-    "aoi_coords": AOI_COORDS,
-    "crs": CRS,
-    "scale_m_per_px": SCALE,
-    "patch_size": PATCH_SIZE,
-    "s2_bands": S2_BANDS,
-    "pre_start": PRE_START,
-    "pre_end": PRE_END,
-    "post_start": POST_START,
-    "post_end": POST_END,
-    "target_loss_year": TARGET_LOSS_YEAR,
-    "forest_cover_threshold": FOREST_COVER_THRESHOLD,
-}
+IMAGERY_COLLECTION = "COPERNICUS/S2_SR_HARMONIZED"
+CLOUD_COLLECTION = "COPERNICUS/S2_CLOUD_PROBABILITY"
 
 # --- Imagery ------------------------------------------------------------
 
 
 def build_composite(aoi, start, end, max_cloud_prob=MAX_CLOUD_PROB):
     """Cloud-masked median Sentinel-2 SR composite, scaled to reflectance."""
-    s2 = ee.ImageCollection("COPERNICUS/S2_SR_HARMONIZED").filterBounds(aoi).filterDate(start, end)
+    s2 = ee.ImageCollection(IMAGERY_COLLECTION).filterBounds(aoi).filterDate(start, end)
     s2_clouds = (
-        ee.ImageCollection("COPERNICUS/S2_CLOUD_PROBABILITY").filterBounds(aoi).filterDate(start, end)
+        ee.ImageCollection(CLOUD_COLLECTION).filterBounds(aoi).filterDate(start, end)
     )
 
     joined = ee.Join.saveFirst("cloud_mask").apply(
@@ -152,18 +166,84 @@ def submit_export(image, aoi):
     return task
 
 
+def _git_commit_info():
+    """Best-effort git commit + dirty-tree flag, for export provenance."""
+    repo_root = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")
+    try:
+        commit = (
+            subprocess.check_output(
+                ["git", "rev-parse", "HEAD"], cwd=repo_root, stderr=subprocess.DEVNULL
+            )
+            .decode()
+            .strip()
+        )
+        dirty = bool(
+            subprocess.check_output(
+                ["git", "status", "--porcelain"], cwd=repo_root, stderr=subprocess.DEVNULL
+            )
+            .decode()
+            .strip()
+        )
+        return commit, dirty
+    except Exception:
+        return "unknown", None
+
+
+def write_export_manifest(raw_dir, task_id):
+    """Write the minimum metadata needed to reproduce/audit this export,
+    next to where the downloaded TFRecords will land."""
+    git_commit, git_dirty = _git_commit_info()
+
+    manifest = {
+        "dataset_id": CONTRACT.dataset_id,
+        "label_contract_version": CONTRACT.label_contract_version,
+        "git_commit": git_commit,
+        "git_dirty": git_dirty,
+        "gee_project": PROJECT,
+        "imagery_collection": IMAGERY_COLLECTION,
+        "cloud_probability_collection": CLOUD_COLLECTION,
+        "hansen_asset": GFC_ASSET,
+        "forest_cover_threshold": FOREST_COVER_THRESHOLD,
+        "target_year": TARGET_LOSS_YEAR,
+        "pre_start": PRE_START,
+        "pre_end": PRE_END,
+        "post_start": POST_START,
+        "post_end": POST_END,
+        "aoi_coords": AOI_COORDS,
+        "crs": CRS,
+        "scale_m_per_px": SCALE,
+        "chip_dimensions": [PATCH_SIZE, PATCH_SIZE],
+        "channel_names_and_order": CANONICAL_BAND_ORDER,
+        "label_construction": CONTRACT.label_semantics,
+        "gee_task_id": task_id,
+        "export_prefix": FILE_PREFIX,
+        "submission_time_utc": datetime.now(timezone.utc).isoformat(),
+    }
+
+    manifest_path = os.path.join(raw_dir, "export_manifest.json")
+    with open(manifest_path, "w") as f:
+        json.dump(manifest, f, indent=2)
+
+    return manifest_path
+
+
 def main():
     ee.Initialize(project=PROJECT)
     aoi = ee.Geometry.Polygon([AOI_COORDS])
     image = build_export_image(aoi)
     task = submit_export(image, aoi)
-    os.makedirs("data/processed", exist_ok=True)
-    with open("data/processed/export_metadata.json", "w") as f:
-        json.dump(EXPORT_METADATA, f, indent=2)
+
+    raw_dir = CONTRACT.raw_path
+    os.makedirs(raw_dir, exist_ok=True)
+    manifest_path = write_export_manifest(raw_dir, task.id)
 
     print(f"Submitted export task: {task.id}")
+    print(f"Dataset contract: configs/datasets/{DATASET_ID}.yaml")
+    print(f"Export manifest: {manifest_path}")
     print(f"Drive folder: {DRIVE_FOLDER} (prefix: {FILE_PREFIX})")
     print("Check progress with: python scripts/gee_check_tasks.py")
+    print(f"After download, place TFRecords in {raw_dir}/")
+    print(f"Then run: python src/GFC_process_tfrecords4.py --dataset-id {DATASET_ID}")
 
 
 if __name__ == "__main__":

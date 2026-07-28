@@ -1,0 +1,37 @@
+dataset_id: gee_full_gfc_v1
+label_mode: hansen_loss
+target_year: 2021
+processor: GFC_process_tfrecords4
+raw_path: data/raw/gee_full_gfc_v1
+processed_path: data/processed/gee_full_gfc_v1
+label_source: hansen_gfc
+label_contract_version: 1
+label_semantics: >
+  Positive pixel = land classified as forest in the Hansen GFC 2000 baseline
+  (treecover2000 >= forest_cover_threshold) AND recorded as forest loss in
+  lossyear == target_year - 2000. Negative pixel = anything else (not forest
+  in 2000, or forest but no loss recorded in target_year).
+
+# Hansen label parameters -- single source of truth for both
+# scripts/gee_export_chips.py (which builds the label band in Earth Engine)
+# and src/GFC_process_tfrecords4.py (which records these alongside every chip).
+gfc_asset: "UMD/hansen/global_forest_change_2025_v1_13"
+forest_cover_threshold: 30
+loss_year_encoding: >
+  lossyear band is a small int: value N means loss detected in calendar year
+  2000+N (e.g. 21 = 2021); 0 means no loss detected through the asset's
+  coverage.
+
+# Sentinel-2 pre/post composite windows, explicitly tied to target_year:
+# pre = dry season before target_year, post = dry season during/through the
+# year Hansen's lossyear band records the loss in. Do not reuse this
+# contract for a different target_year without updating these windows.
+pre_start: "2020-06-01"
+pre_end: "2020-09-30"
+post_start: "2021-06-01"
+post_end: "2021-09-30"
+
+purpose: >
+  The active Phase 1 baseline dataset. Do not run experiments meant to
+  represent "Phase 1 results" against gee_canary_gfc_v1 or
+  existing_gfc_recovery_v0 -- those are pipeline-validation datasets only.

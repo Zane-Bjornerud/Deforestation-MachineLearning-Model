@@ -1,0 +1,29 @@
+# Conda environment for this repo (matches the local `deforest` env).
+# This is the curated, human-maintained spec -- for the exact resolved
+# versions this was captured against, see requirements-freeze.txt (generated
+# via `pip freeze` in the deforest env; regenerate after any dependency
+# change with:
+#   conda env export -n deforest --no-builds > environment.snapshot.yml
+#   conda run -n deforest pip freeze > requirements-freeze.txt
+#
+# No CUDA on this machine (Apple Silicon Mac) -- torch uses MPS/CPU, not
+# CUDA. If training on an NVIDIA GPU elsewhere, pin a CUDA-enabled torch
+# build explicitly; nothing here assumes CUDA.
+name: deforest
+channels:
+  - conda-forge
+dependencies:
+  - python=3.11
+  - numpy=1.26
+  - scipy=1.16
+  - scikit-learn=1.7
+  - pyyaml=6.0
+  - rasterio=1.4
+  - geopandas=1.1
+  - pip
+  - pip:
+      - torch==2.8.0
+      - tensorflow==2.16.2         # only used for reading TFRecords in the two processors
+      - segmentation-models-pytorch==0.5.0
+      - albumentations==2.0.8
+      - earthengine-api==1.6.8     # `ee`; only needed for scripts/gee_export_chips.py

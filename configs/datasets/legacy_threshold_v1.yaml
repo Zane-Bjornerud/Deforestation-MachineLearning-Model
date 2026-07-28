@@ -1,0 +1,32 @@
+dataset_id: legacy_threshold_v1
+label_mode: change_based
+target_year: null  # change-based labels have no Hansen annual loss-year semantics
+processor: change_based_processor
+raw_path: data/raw/existing_gfc_export
+processed_path: data/processed/legacy_threshold_v1
+label_source: change_index_threshold
+label_contract_version: 1
+label_semantics: >
+  Positive pixel = dNBR < dnbr_threshold AND dNDVI < dndvi_threshold (both
+  conditions required), where dNBR/dNDVI are pre/post Sentinel-2 change
+  indices computed over comparison_pre_* / comparison_post_* windows below.
+  This is NOT a Hansen GFC forest-loss label -- it has no annual loss-year
+  semantics and must never be compared directly to a hansen_loss target_year.
+
+dnbr_threshold: -0.1
+dndvi_threshold: -0.15
+threshold_profile: sensitive  # see change_based_processor.py's threshold presets
+
+# Explicit comparison window this dataset's dNBR/dNDVI were computed over.
+# Do not treat this as equivalent to a Hansen target_year -- it only says
+# "vegetation changed between these two windows," not "loss occurred in
+# calendar year X."
+comparison_pre_start: "2020-06-01"
+comparison_pre_end: "2020-09-30"
+comparison_post_start: "2021-06-01"
+comparison_post_end: "2021-09-30"
+
+purpose: >
+  Legacy-only. Kept for comparison against the hansen_loss pipeline, not for
+  new Phase 1 baselines. See configs/datasets/gee_full_gfc_v1.yaml for the
+  active contract.

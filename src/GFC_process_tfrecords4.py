@@ -5,6 +5,16 @@ from pathlib import Path
 import tensorflow as tf
 from scipy import ndimage
 
+from band_names import CANONICAL_BAND_ORDER, raw_bands_to_canonical_order
+from dataset_contract import (
+    assert_no_label_source_conflict,
+    load_contract,
+    validate_processor_identity,
+    write_dataset_manifest,
+)
+
+PROCESSOR_NAME = "GFC_process_tfrecords4"
+
 
 def resize_array(array, target_size):
     """Resize array to target size using bilinear interpolation."""
@@ -20,28 +30,61 @@ def resize_array(array, target_size):
     return resized
 
 
-def process_tfrecords_resolution_fixed():
-    """TFRecord processor that handles resolution mismatches."""
+def process_tfrecords_resolution_fixed(dataset_id):
+    """GFC-labeled TFRecord processor that handles resolution mismatches.
 
-    print("=== Resolution-Fixed TFRecord Processor ===\n")
+    Args:
+        dataset_id: Dataset contract id, e.g. "gee_full_gfc_v1". Looked up
+            under configs/datasets/<dataset_id>.yaml, which supplies the
+            input glob (raw_path/*.tfrecord), output_dir (processed_path),
+            and the Hansen label parameters recorded alongside every chip.
+    """
 
-    # Find TFRecord files
-    tfrecord_files = list(Path("data").glob("*.tfrecord"))
+    print("=== Resolution-Fixed TFRecord Processor (GFC labels) ===\n")
+
+    contract = load_contract(dataset_id)
+    validate_processor_identity(contract, PROCESSOR_NAME)
+
+    input_glob = f"{contract.raw_path}/*.tfrecord"
+    output_dir = contract.processed_path
+
+    assert_no_label_source_conflict(output_dir, contract.label_source)
+
+    # Find TFRecord files matching the explicit input glob only
+    tfrecord_files = sorted(Path().glob(input_glob))
     print(f"Found {len(tfrecord_files)} files:")
     for f in tfrecord_files:
         print(f"  {f.name}")
 
     # Create output directories
-    os.makedirs("data/processed/chips", exist_ok=True)
-    os.makedirs("data/processed/masks", exist_ok=True)
+    os.makedirs(f"{output_dir}/chips", exist_ok=True)
+    os.makedirs(f"{output_dir}/masks", exist_ok=True)
 
     all_metadata = []
     chip_count = 0
+
+    # QC counters, folded into the dataset manifest at the end -- lets the
+    # QC report (scripts/qc_report.py) show shard/record/failure counts
+    # without re-parsing the raw TFRecords a second time.
+    qc = {
+        "shards_discovered": len(tfrecord_files),
+        "shards_processed": 0,
+        "total_records_read": 0,
+        "records_skipped_no_label": 0,
+        "records_skipped_no_bands": 0,
+        "records_failed": 0,
+    }
 
     # We'll use 256x256 as our target resolution (since that's what the features are)
     target_size = (256, 256)
 
     print(f"Target resolution: {target_size[0]}x{target_size[1]}")
+    print(
+        f"Label config: dataset_id={contract.dataset_id} "
+        f"hansen_asset={contract.extra.get('gfc_asset')} "
+        f"forest_cover_threshold={contract.extra.get('forest_cover_threshold')} "
+        f"target_year={contract.target_year}"
+    )
 
     # Process each TFRecord file
     for tfrecord_file in tfrecord_files:
@@ -51,6 +94,7 @@ def process_tfrecords_resolution_fixed():
 
         file_count = 0
         for raw_record in dataset:
+            qc["total_records_read"] += 1
             try:
                 # Parse the TF Example
                 example = tf.train.Example.FromString(raw_record.numpy())
@@ -62,7 +106,15 @@ def process_tfrecords_resolution_fixed():
                     label_feature = features["label"]
                     if label_feature.HasField("bytes_list"):
                         data = label_feature.bytes_list.value[0]
-                        label_array = np.frombuffer(data, dtype=np.float32)
+                        # The label band is exported via .toByte() (see
+                        # scripts/gee_export_chips.py build_label()) -- one
+                        # UINT8 byte per pixel, NOT float32. Decoding it as
+                        # float32 misreads the buffer (4x too few "pixels",
+                        # garbage values) and silently zeroes out almost
+                        # every positive label after thresholding.
+                        label_array = np.frombuffer(data, dtype=np.uint8).astype(
+                            np.float32
+                        )
 
                         # Determine original label size
                         label_size = int(np.sqrt(len(label_array)))
@@ -79,11 +131,14 @@ def process_tfrecords_resolution_fixed():
                             label_data = label_reshaped
 
                 if label_data is None:
+                    qc["records_skipped_no_label"] += 1
                     continue
 
-                # Extract feature bands
-                chip_bands = []
-                band_names = []
+                # Extract feature bands into a dict keyed by raw band name.
+                # Order is NOT decided here -- dict/protobuf map iteration
+                # order is not a channel-order guarantee. Channel order is
+                # fixed below via raw_bands_to_canonical_order.
+                raw_bands = {}
 
                 # Process all non-label features
                 for key, feature in features.items():
@@ -101,20 +156,25 @@ def process_tfrecords_resolution_fixed():
                         # Resize to target size if needed
                         if (band_size, band_size) != target_size:
                             band_resized = resize_array(band_reshaped, target_size)
-                            if chip_count == 0 and len(chip_bands) == 0:
+                            if chip_count == 0 and len(raw_bands) == 0:
                                 print(
                                     f"Resizing features from {band_size}x{band_size} to {target_size[0]}x{target_size[1]}"
                                 )
                         else:
                             band_resized = band_reshaped
 
-                        chip_bands.append(band_resized)
-                        band_names.append(key)
+                        raw_bands[key] = band_resized
 
                     elif feature.HasField("bytes_list"):
-                        # Handle bytes features (shouldn't be many besides label)
+                        # Handle bytes features (shouldn't be many besides
+                        # label, which is skipped above). GEE byte-encodes
+                        # with .toByte() -> UINT8, not float32 -- see the
+                        # label parsing above for why this distinction
+                        # matters (a float32 read silently corrupts the data).
                         data = feature.bytes_list.value[0]
-                        band_array = np.frombuffer(data, dtype=np.float32)
+                        band_array = np.frombuffer(data, dtype=np.uint8).astype(
+                            np.float32
+                        )
 
                         band_size = int(np.sqrt(len(band_array)))
                         band_reshaped = band_array.reshape(band_size, band_size)
@@ -124,14 +184,25 @@ def process_tfrecords_resolution_fixed():
                         else:
                             band_resized = band_reshaped
 
-                        chip_bands.append(band_resized)
-                        band_names.append(key)
+                        raw_bands[key] = band_resized
 
                 # Check if we have valid data
-                if len(chip_bands) > 0 and label_data is not None:
+                if len(raw_bands) > 0 and label_data is not None:
+
+                    # Fix channel order explicitly from src/band_names.py --
+                    # never from feature/dict iteration order.
+                    chip_bands, band_names = raw_bands_to_canonical_order(raw_bands)
 
                     # Stack bands: (n_bands, height, width)
                     chip = np.stack(chip_bands, axis=0)
+                    assert chip.shape == (len(CANONICAL_BAND_ORDER), *target_size), (
+                        f"chip {chip_count}: expected shape "
+                        f"{(len(CANONICAL_BAND_ORDER), *target_size)}, got {chip.shape}"
+                    )
+                    assert band_names == CANONICAL_BAND_ORDER, (
+                        f"chip {chip_count}: band_names {band_names} != "
+                        f"CANONICAL_BAND_ORDER {CANONICAL_BAND_ORDER}"
+                    )
                     # Label: (1, height, width)
                     mask = label_data[np.newaxis, :, :]
 
@@ -140,8 +211,8 @@ def process_tfrecords_resolution_fixed():
 
                     # Save chip and mask
                     chip_id = f"chip_{chip_count:05d}"
-                    chip_path = f"data/processed/chips/{chip_id}.npy"
-                    mask_path = f"data/processed/masks/{chip_id}.npy"
+                    chip_path = f"{output_dir}/chips/{chip_id}.npy"
+                    mask_path = f"{output_dir}/masks/{chip_id}.npy"
 
                     np.save(chip_path, chip.astype(np.float32))
                     np.save(mask_path, mask.astype(np.float32))
@@ -155,11 +226,17 @@ def process_tfrecords_resolution_fixed():
                             "chip_id": chip_id,
                             "chip_path": f"chips/{chip_id}.npy",
                             "mask_path": f"masks/{chip_id}.npy",
+                            "source_tfrecord": str(tfrecord_file),
                             "has_deforestation": has_defor,
                             "deforestation_fraction": defor_fraction,
                             "patch_size": target_size[0],
                             "n_bands": len(chip_bands),
                             "band_names": band_names,
+                            "dataset_id": contract.dataset_id,
+                            "label_mode": contract.label_mode,
+                            "label_source": contract.label_source,
+                            "label_contract_version": contract.label_contract_version,
+                            "target_year": contract.target_year,
                         }
                     )
 
@@ -182,20 +259,23 @@ def process_tfrecords_resolution_fixed():
                             print(f"Bands: {band_names}")
 
                 else:
+                    qc["records_skipped_no_bands"] += 1
                     if file_count < 3:  # Only show warnings for first few
                         print(
-                            f"Skipping: bands={len(chip_bands)}, label={label_data is not None}"
+                            f"Skipping: bands={len(raw_bands)}, label={label_data is not None}"
                         )
 
             except Exception as e:
+                qc["records_failed"] += 1
                 if file_count < 3:  # Only show errors for first few
                     print(f"Error: {e}")
                 continue
 
+        qc["shards_processed"] += 1
         print(f"Extracted {file_count} chips from {tfrecord_file.name}")
 
     # Save metadata
-    metadata_path = "data/processed/metadata.pkl"
+    metadata_path = f"{output_dir}/metadata.pkl"
     with open(metadata_path, "wb") as f:
         pickle.dump(all_metadata, f)
 
@@ -216,8 +296,8 @@ def process_tfrecords_resolution_fixed():
 
         # Sample chip info
         sample = all_metadata[0]
-        sample_chip = np.load(f"data/processed/{sample['chip_path']}")
-        sample_mask = np.load(f"data/processed/{sample['mask_path']}")
+        sample_chip = np.load(f"{output_dir}/{sample['chip_path']}")
+        sample_mask = np.load(f"{output_dir}/{sample['mask_path']}")
 
         print(f"\nFinal data format:")
         print(f"  Chip shape: {sample_chip.shape}")
@@ -242,21 +322,25 @@ def process_tfrecords_resolution_fixed():
 
     print(f"\nFiles saved:")
     print(f"  Metadata: {metadata_path}")
-    print(f"  Chips: data/processed/chips/ ({chip_count} files)")
-    print(f"  Masks: data/processed/masks/ ({chip_count} files)")
+    print(f"  Chips: {output_dir}/chips/ ({chip_count} files)")
+    print(f"  Masks: {output_dir}/masks/ ({chip_count} files)")
+
+    print(f"\nQC counters: {qc}")
 
     if chip_count > 0:
         print("\n Processing successful!")
-        return all_metadata
+        return all_metadata, qc
     else:
         print("\n No chips processed.")
-        return None
+        return None, qc
 
 
 def compute_normalization_stats_final(metadata_file, n_samples=100):
     """Compute normalization statistics."""
 
     print(f"\nComputing normalization statistics...")
+
+    base_dir = os.path.dirname(metadata_file)
 
     with open(metadata_file, "rb") as f:
         metadata = pickle.load(f)
@@ -273,7 +357,7 @@ def compute_normalization_stats_final(metadata_file, n_samples=100):
 
     all_chips = []
     for idx in sample_indices:
-        chip_path = f"data/processed/{metadata[idx]['chip_path']}"
+        chip_path = os.path.join(base_dir, metadata[idx]["chip_path"])
         chip = np.load(chip_path)
         all_chips.append(chip)
 
@@ -303,7 +387,7 @@ def compute_normalization_stats_final(metadata_file, n_samples=100):
     }
 
     # Save statistics
-    stats_path = "data/processed/normalization_stats.pkl"
+    stats_path = os.path.join(base_dir, "normalization_stats.pkl")
     with open(stats_path, "wb") as f:
         pickle.dump(stats, f)
 
@@ -313,6 +397,20 @@ def compute_normalization_stats_final(metadata_file, n_samples=100):
 
 
 if __name__ == "__main__":
+    import argparse
+
+    parser = argparse.ArgumentParser(
+        description="GFC (Hansen Global Forest Change) labeled TFRecord processor"
+    )
+    parser.add_argument(
+        "--dataset-id",
+        required=True,
+        help="Dataset contract id under configs/datasets/, e.g. "
+        "gee_full_gfc_v1. Supplies the input glob, output dir, and Hansen "
+        "label parameters.",
+    )
+    args = parser.parse_args()
+
     # Install scipy if needed
     try:
         from scipy import ndimage
@@ -324,16 +422,25 @@ if __name__ == "__main__":
         from scipy import ndimage
 
     # Process TFRecords
-    metadata = process_tfrecords_resolution_fixed()
+    metadata, qc = process_tfrecords_resolution_fixed(args.dataset_id)
 
     if metadata:
+        contract = load_contract(args.dataset_id)
+        output_dir = contract.processed_path
+        metadata_path = f"{output_dir}/metadata.pkl"
+
         # Compute normalization stats
-        stats = compute_normalization_stats_final("data/processed/metadata.pkl")
+        stats = compute_normalization_stats_final(metadata_path)
+
+        manifest_path = write_dataset_manifest(
+            output_dir, contract, metadata, extra_manifest_fields={"qc": qc}
+        )
+        print(f"Dataset manifest: {manifest_path}")
 
         print(f"\n Data processing complete!")
         print("\nNext steps:")
-        print("1. python src/split_data.py")
-        print("2. python src/train.py")
+        print(f"1. python src/split_data.py --dataset-id {args.dataset_id}")
+        print(f"2. python src/train.py --experiment <experiment_id>")
         print("3. jupyter notebook notebooks/explore_data.ipynb")
     else:
         print(" No data processed successfully.")

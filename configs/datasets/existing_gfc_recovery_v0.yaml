@@ -1,0 +1,33 @@
+dataset_id: existing_gfc_recovery_v0
+label_mode: hansen_loss
+target_year: 2021
+processor: GFC_process_tfrecords4
+raw_path: data/raw/existing_gfc_export
+processed_path: data/processed/existing_gfc_recovery_v0
+label_source: hansen_gfc
+label_contract_version: 1
+label_semantics: >
+  Same Hansen forest-loss definition as gee_canary_gfc_v1 / gee_full_gfc_v1
+  (positive pixel = forest in 2000 AND lossyear == target_year - 2000), but
+  this raw export (data/raw/existing_gfc_export) predates the contract
+  system: the exact gfc_asset version and forest_cover_threshold used at
+  export time were not recorded. Values below are inferred from the file
+  naming ("rondonia_deforest_chips_2021") and the export script's history,
+  not confirmed against the original export run.
+
+gfc_asset: "unknown_inferred_from_2021_filename"
+forest_cover_threshold: 30
+loss_year_encoding: >
+  Assumed same lossyear encoding as later GFC exports: value N means loss in
+  calendar year 2000+N. Not confirmed for this specific raw export.
+pre_start: unknown
+pre_end: unknown
+post_start: unknown
+post_end: unknown
+
+purpose: >
+  Pipeline-recovery dataset, NOT the final Phase 1 baseline. Its only
+  purpose is to expose processing and training bugs using data that's
+  already downloaded, before spending time or GEE quota on a new export.
+  Do not report results from this dataset as Phase 1 results -- use
+  gee_full_gfc_v1 for that.

@@ -1,11 +1,39 @@
+import argparse
+import os
+
 import torch
 import torch.nn as nn
 import segmentation_models_pytorch as smp
+import yaml
 from torch.utils.data import DataLoader
+
 from dataset import DeforestationDataset
-import numpy as np
-import os
-import segmentation_models_pytorch as smp
+from dataset_contract import load_contract
+
+EXPERIMENT_DIR = "configs/experiments"
+
+
+def load_experiment_config(experiment_id_or_path):
+    """Load an experiment config: which dataset contract to train on, where
+    to write checkpoints, and hyperparameters. Keeping this separate from the
+    dataset contract is what lets hansen_loss and change_based be run and
+    compared as two distinct experiments against the same code."""
+    if os.path.sep in experiment_id_or_path or experiment_id_or_path.endswith(
+        (".yaml", ".yml")
+    ):
+        path = experiment_id_or_path
+    else:
+        path = os.path.join(EXPERIMENT_DIR, f"{experiment_id_or_path}.yaml")
+
+    if not os.path.exists(path):
+        raise FileNotFoundError(
+            f"No experiment config found at {path}. Add one under "
+            f"{EXPERIMENT_DIR}/ (see hansen_loss_v1.yaml / change_based_v1.yaml)."
+        )
+
+    with open(path) as f:
+        return yaml.safe_load(f)
+
 
 # Check for MPS (Metal Performance Shaders) on M1 Mac
 # if torch.backends.mps.is_available():
@@ -23,8 +51,8 @@ DEVICE = torch.device("cpu")
 print("Using CPU device (MPS has compatibility issues with some loss functions)")
 
 # Model configuration
-IN_CH = 18  #data has 18 bands
-OUT_CH = 1 
+IN_CH = 18  # data has 18 bands
+OUT_CH = 1
 
 # Loss functions
 # bce = nn.BCEWithLogitsLoss()
@@ -39,7 +67,7 @@ def dice_loss(logits, y, eps=1e-6):
 
 
 # Training loop
-def train_model(train_loader, val_loader, epochs=50):
+def train_model(train_loader, val_loader, checkpoint_dir, epochs=50):
     best_iou = 0
 
     for epoch in range(epochs):
@@ -110,25 +138,46 @@ def train_model(train_loader, val_loader, epochs=50):
         # Save best model
         if iou > best_iou:
             best_iou = iou
-            torch.save(model.state_dict(), "outputs/checkpoints/best_model.pth")
+            torch.save(model.state_dict(), f"{checkpoint_dir}/best_model.pth")
             print(f"  New best IoU: {best_iou:.3f}")
 
         # Save checkpoint every 10 epochs
         if epoch % 10 == 0:
             torch.save(
-                model.state_dict(), f"outputs/checkpoints/model_epoch_{epoch}.pth"
+                model.state_dict(), f"{checkpoint_dir}/model_epoch_{epoch}.pth"
             )
 
     print(f"Training complete! Best IoU: {best_iou:.3f}")
 
 
 if __name__ == "__main__":
+    parser = argparse.ArgumentParser(
+        description="Train the deforestation model on a specific experiment"
+    )
+    parser.add_argument(
+        "--experiment",
+        required=True,
+        help="Experiment id under configs/experiments/ (e.g. hansen_loss_v1 "
+        "or change_based_v1), or an explicit path to an experiment yaml. "
+        "Each experiment pins a dataset contract, checkpoint dir, and "
+        "hyperparameters, so hansen_loss and change_based runs stay "
+        "separate and comparable.",
+    )
+    args = parser.parse_args()
+
+    experiment = load_experiment_config(args.experiment)
+    contract = load_contract(experiment["dataset_id"])
+
+    print(f"=== Experiment: {experiment['experiment_id']} ===")
+    print(f"Dataset: {contract.dataset_id} (label_mode={contract.label_mode})")
+    print(f"Processed data: {contract.processed_path}")
+
     # Create output directories
-    os.makedirs("outputs/checkpoints", exist_ok=True)
+    checkpoint_dir = experiment["checkpoint_dir"]
+    os.makedirs(checkpoint_dir, exist_ok=True)
 
     # Paths
-    # Must match the dataset_dir used in src/split_data.py.
-    data_dir = "data/processed/legacy_threshold_v1"
+    data_dir = contract.processed_path
     train_metadata = f"{data_dir}/train_metadata.pkl"
     val_metadata = f"{data_dir}/val_metadata.pkl"
     norm_stats = f"{data_dir}/normalization_stats.pkl"
@@ -136,16 +185,18 @@ if __name__ == "__main__":
     # Check if files exist
     if not os.path.exists(train_metadata):
         print(f"Train metadata not found: {train_metadata}")
-        print("Please run: python src/split_data.py first")
+        print(
+            f"Please run: python src/split_data.py --dataset-id {contract.dataset_id} first"
+        )
         exit(1)
 
     # Create datasets
     print("Loading datasets...")
     train_dataset = DeforestationDataset(
-        data_dir, train_metadata, norm_stats, augment=True
+        data_dir, train_metadata, norm_stats, contract, augment=True
     )
     val_dataset = DeforestationDataset(
-        data_dir, val_metadata, norm_stats, augment=False
+        data_dir, val_metadata, norm_stats, contract, augment=False
     )
 
     print(f"Training samples: {len(train_dataset)}")
@@ -171,14 +222,19 @@ if __name__ == "__main__":
     model = smp.Unet(encoder_name="resnet34", in_channels=IN_CH, classes=OUT_CH).to(
         DEVICE
     )
-    opt = torch.optim.AdamW(model.parameters(), lr=1e-4)  # reduced from 1e-3
+    opt = torch.optim.AdamW(
+        model.parameters(), lr=experiment.get("learning_rate", 1e-4)
+    )
 
     # Create data loaders with smaller batch size due to 256x256 images
+    batch_size = experiment.get("batch_size", 2)
     try:
         train_loader = DataLoader(
-            train_dataset, batch_size=2, shuffle=True, num_workers=0
+            train_dataset, batch_size=batch_size, shuffle=True, num_workers=0
         )  # num_workers=0 for Mac
-        val_loader = DataLoader(val_dataset, batch_size=2, shuffle=False, num_workers=0)
+        val_loader = DataLoader(
+            val_dataset, batch_size=batch_size, shuffle=False, num_workers=0
+        )
 
         # Test loading one batch
         print("Testing data loading...")
@@ -189,7 +245,12 @@ if __name__ == "__main__":
 
         # Train model
         print("Starting training...")
-        train_model(train_loader, val_loader, epochs=20)  # Start with fewer epochs
+        train_model(
+            train_loader,
+            val_loader,
+            checkpoint_dir,
+            epochs=experiment.get("epochs", 20),
+        )
 
     except Exception as e:
         print(f"Error during training setup: {e}")

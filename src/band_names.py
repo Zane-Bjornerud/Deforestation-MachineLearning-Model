@@ -55,3 +55,32 @@ def canonicalize_band_names(names: list[str]) -> list[str]:
             f"canonical bands. Got: {renamed}"
         )
     return renamed
+
+
+def to_canonical_band_names(names: list[str]) -> list[str]:
+    """Map a list of raw TFRecord band names to canonical names, whether the
+    raw names are already canonical (current scripts/gee_export_chips.py
+    exports use _pre/_post directly) or legacy bare/_1-suffixed (old raw
+    exports under data/raw/existing_gfc_export). Does not reorder -- callers
+    that need a fixed channel order must still index CANONICAL_BAND_ORDER
+    explicitly; see raw_bands_to_canonical_order.
+    """
+    if set(names) == CANONICAL_BAND_SET and len(names) == len(CANONICAL_BAND_ORDER):
+        return list(names)
+    return canonicalize_band_names(names)
+
+
+def raw_bands_to_canonical_order(raw_band_dict: dict) -> tuple[list, list[str]]:
+    """Reindex a {raw_band_name: array} dict into the fixed CANONICAL_BAND_ORDER.
+
+    This is the single point where channel order is decided. Callers must
+    build their per-chip array from the returned (arrays, names) rather than
+    from whatever order dict/TFRecord iteration produced -- protobuf map and
+    Python dict iteration order are not a channel-order guarantee.
+
+    Returns (arrays_in_canonical_order, CANONICAL_BAND_ORDER).
+    """
+    canonical_keys = to_canonical_band_names(list(raw_band_dict.keys()))
+    by_canonical_name = dict(zip(canonical_keys, raw_band_dict.values()))
+    ordered_arrays = [by_canonical_name[name] for name in CANONICAL_BAND_ORDER]
+    return ordered_arrays, list(CANONICAL_BAND_ORDER)

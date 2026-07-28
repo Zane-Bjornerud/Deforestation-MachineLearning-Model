@@ -11,19 +11,33 @@ from albumentations.pytorch import ToTensorV2
 # `src.dataset` (e.g. from scripts/, with the repo root on sys.path) or as
 # a bare sibling module (e.g. `python src/train.py`, with src/ on sys.path).
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from band_names import CANONICAL_BAND_SET
+from band_names import CANONICAL_BAND_ORDER, CANONICAL_BAND_SET
+from dataset_contract import validate_metadata_matches_contract
 
 
 def _validate_band_names(metadata):
-    """Raise early if any chip's band_names aren't the canonical 18 bands."""
+    """Raise early if any chip's band_names aren't the canonical 18 bands in
+    the canonical order. Order matters: the processor must build each chip's
+    array by explicitly indexing CANONICAL_BAND_ORDER (see
+    band_names.raw_bands_to_canonical_order), never by TFRecord/dict
+    iteration order, so channel position is guaranteed stable across runs
+    and across the two label pipelines."""
     for item in metadata:
-        band_set = set(item["band_names"])
+        band_names = item["band_names"]
+        band_set = set(band_names)
         if band_set != CANONICAL_BAND_SET:
             raise ValueError(
                 f"chip {item.get('chip_id')} has non-canonical band_names "
-                f"{item['band_names']}; expected the 18 canonical bands "
+                f"{band_names}; expected the 18 canonical bands "
                 f"(mismatch: {sorted(band_set ^ CANONICAL_BAND_SET)}). "
                 "Re-run the TFRecord processor to canonicalize band names."
+            )
+        if band_names != CANONICAL_BAND_ORDER:
+            raise ValueError(
+                f"chip {item.get('chip_id')} has the right 18 bands but in "
+                f"the wrong order: {band_names} != {CANONICAL_BAND_ORDER}. "
+                "This means the chip array's channel order does not match "
+                "CANONICAL_BAND_ORDER -- re-run the TFRecord processor."
             )
 
 
@@ -33,6 +47,7 @@ class DeforestationDataset(Dataset):
         data_dir,
         metadata_file,
         normalization_stats_file,
+        contract,
         augment=False,
         filter_positives=False,
     ):
@@ -41,15 +56,24 @@ class DeforestationDataset(Dataset):
             data_dir: Directory containing chips and masks
             metadata_file: Pickle file with chip metadata
             normalization_stats_file: Pickle file with normalization stats
+            contract: DatasetContract this metadata must match (see
+                src/dataset_contract.py). Required -- the dataset is mode-aware:
+                if contract.label_mode is "hansen_loss" every chip must carry
+                hansen_gfc labels, if "change_based" every chip must carry
+                change_index_threshold labels. A mismatch (wrong processor
+                run, stale metadata, mixed dataset) raises immediately here
+                instead of silently training on the wrong labels.
             augment: Whether to apply data augmentation
             filter_positives: If True, only include chips with deforestation
         """
         self.data_dir = data_dir
+        self.contract = contract
 
         # Load metadata
         with open(metadata_file, "rb") as f:
             self.metadata = pickle.load(f)
 
+        validate_metadata_matches_contract(self.metadata, contract)
         _validate_band_names(self.metadata)
 
         # Filter for positive samples if requested
@@ -132,20 +156,25 @@ class BalancedDeforestationDataset(Dataset):
         data_dir,
         metadata_file,
         normalization_stats_file,
+        contract,
         augment=False,
         pos_fraction=0.5,
     ):
         """
         Args:
+            contract: DatasetContract this metadata must match (see
+                src/dataset_contract.py and DeforestationDataset above).
             pos_fraction: Fraction of samples that should be positive (have deforestation)
         """
         self.data_dir = data_dir
+        self.contract = contract
         self.pos_fraction = pos_fraction
 
         # Load metadata
         with open(metadata_file, "rb") as f:
             all_metadata = pickle.load(f)
 
+        validate_metadata_matches_contract(all_metadata, contract)
         _validate_band_names(all_metadata)
 
         # Split into positive and negative samples
