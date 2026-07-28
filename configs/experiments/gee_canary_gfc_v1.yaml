@@ -1,0 +1,6 @@
+experiment_id: gee_canary_gfc_v1
+dataset_id: gee_canary_gfc_v1
+checkpoint_dir: outputs/checkpoints/gee_canary_gfc_v1
+epochs: 1
+batch_size: 2
+learning_rate: 1.0e-4
