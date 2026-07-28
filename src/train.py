@@ -50,7 +50,7 @@ def train_model(train_loader, val_loader, epochs=50):
             try:
                 xb, yb = xb.to(DEVICE), yb.to(DEVICE)
 
-                if args.inspect_first_batch and epoch == 0 and batch_idx == 0:
+                if epoch == 0 and batch_idx == 0:
                     print(type(xb))
                     print("Image shape:", xb.shape)
                     print("Image dtype:", xb.dtype)
@@ -127,7 +127,8 @@ if __name__ == "__main__":
     os.makedirs("outputs/checkpoints", exist_ok=True)
 
     # Paths
-    data_dir = "data/processed"
+    # Must match the dataset_dir used in src/split_data.py.
+    data_dir = "data/processed/legacy_threshold_v1"
     train_metadata = f"{data_dir}/train_metadata.pkl"
     val_metadata = f"{data_dir}/val_metadata.pkl"
     norm_stats = f"{data_dir}/normalization_stats.pkl"

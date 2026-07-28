@@ -85,7 +85,12 @@ def create_data_splits(
 
 
 if __name__ == "__main__":
-    metadata_file = "data/processed/metadata.pkl"
-    output_dir = "data/processed"
+    # Dataset directory: chips/, masks/, and metadata.pkl all live here.
+    # Swap to data/processed/gee_canary_gfc_v1 or gee_full_gfc_v1 once those
+    # are populated by scripts/gee_export_chips.py + GFC_process_tfrecords4.py.
+    dataset_dir = "data/processed/legacy_threshold_v1"
+
+    metadata_file = f"{dataset_dir}/metadata.pkl"
+    output_dir = dataset_dir
 
     splits = create_data_splits(metadata_file, output_dir)

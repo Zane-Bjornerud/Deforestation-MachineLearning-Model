@@ -19,22 +19,6 @@ import ee
 import json
 import os
 
-export_metadata = {
-    "project": PROJECT,
-    "file_prefix": FILE_PREFIX,
-    "aoi_coords": AOI_COORDS,
-    "crs": CRS,
-    "scale_m_per_px": SCALE,
-    "patch_size": PATCH_SIZE,
-    "s2_bands": S2_BANDS,
-    "pre_start": PRE_START,
-    "pre_end": PRE_END,
-    "post_start": POST_START,
-    "post_end": POST_END,
-    "target_loss_year": TARGET_LOSS_YEAR,
-    "forest_cover_threshold": FOREST_COVER_THRESHOLD,
-}
-
 # --- Config -----------------------------------------------------------------
 
 PROJECT = "decent-being-438620-b7"
@@ -67,6 +51,22 @@ DRIVE_FOLDER = "deforest_export"
 FILE_PREFIX = f"rondonia_deforest_chips_{TARGET_LOSS_YEAR}"
 
 S2_BANDS = ["B2", "B3", "B4", "B8", "B11", "B12"]
+
+EXPORT_METADATA = {
+    "project": PROJECT,
+    "file_prefix": FILE_PREFIX,
+    "aoi_coords": AOI_COORDS,
+    "crs": CRS,
+    "scale_m_per_px": SCALE,
+    "patch_size": PATCH_SIZE,
+    "s2_bands": S2_BANDS,
+    "pre_start": PRE_START,
+    "pre_end": PRE_END,
+    "post_start": POST_START,
+    "post_end": POST_END,
+    "target_loss_year": TARGET_LOSS_YEAR,
+    "forest_cover_threshold": FOREST_COVER_THRESHOLD,
+}
 
 # --- Imagery ------------------------------------------------------------
 
