@@ -227,19 +227,46 @@ def create_block_splits(
 
         n_total = len(split_chips)
         n_positive = sum(1 for item in split_chips if item["has_deforestation"])
+        n_negative = n_total - n_positive
+        positive_fractions = [
+            item["deforestation_fraction"] for item in split_chips if item["has_deforestation"]
+        ]
+
         if n_total:
+            frac_range = (
+                (min(positive_fractions), max(positive_fractions))
+                if positive_fractions
+                else (0.0, 0.0)
+            )
             print(
                 f"{split_name}: {n_total} chips, {n_positive} positive "
-                f"({n_positive/n_total*100:.1f}%)"
+                f"({n_positive/n_total*100:.1f}%), {n_negative} negative, "
+                f"positive-fraction range=[{frac_range[0]:.3%}, {frac_range[1]:.3%}]"
             )
         else:
             print(f"{split_name}: 0 chips")
+
         if n_total == 0 or n_positive == 0:
             raise ValueError(
                 f"{split_name} split is empty or has zero positive chips -- "
                 "try a smaller buffer_bands, a larger block_size_tiles "
                 "(fewer, coarser bands), or check whether deforestation is "
                 "concentrated in one part of the AOI."
+            )
+        if n_negative == 0:
+            raise ValueError(
+                f"{split_name} split has zero negative chips -- every chip "
+                "shows deforestation, which is not representative. This "
+                "band likely landed entirely inside an active clearing area "
+                "-- try a different block_size_tiles or check the AOI."
+            )
+        if len(positive_fractions) > 1 and max(positive_fractions) == min(positive_fractions):
+            raise ValueError(
+                f"{split_name} split's positive chips all have the identical "
+                f"deforestation_fraction ({positive_fractions[0]:.3%}) -- no "
+                "variation in severity across positive chips, which suggests "
+                "duplicated or corrupted data rather than a genuine "
+                "geographic split."
             )
 
     print("\nBlock splits created successfully!")
