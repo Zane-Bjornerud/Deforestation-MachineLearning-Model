@@ -34,6 +34,7 @@ import ee
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "src"))
 from band_names import CANONICAL_BAND_ORDER
 from dataset_contract import LABEL_MODE_HANSEN, load_contract
+from gee_task_registry import add_task_submission
 
 # --- Config -----------------------------------------------------------------
 
@@ -43,7 +44,7 @@ PROJECT = "decent-being-438620-b7"
 # configs/datasets/<DATASET_ID>.yaml with label_mode: hansen_loss.
 # "gee_canary_gfc_v1" for a small test export, "gee_full_gfc_v1" for the real
 # Phase 1 export.
-DATASET_ID = "gee_canary_gfc_v1"
+DATASET_ID = "gee_full_gfc_v1"
 
 CONTRACT = load_contract(DATASET_ID)
 if CONTRACT.label_mode != LABEL_MODE_HANSEN:
@@ -52,13 +53,32 @@ if CONTRACT.label_mode != LABEL_MODE_HANSEN:
         f"contract says label_mode={CONTRACT.label_mode!r}"
     )
 
-# EDIT ME: rough Rondonia deforestation-frontier bounding box. Narrow this to
-# your actual area of interest before running a real export.
+# EDIT ME: area of interest, centered on a Rondonia deforestation-frontier
+# "fishbone" hotspot along BR-364 (-63.75, -9.75) -- the same center the
+# canary export used. The AOI is a square of side 2*AOI_HALF_WIDTH_DEG
+# degrees around that center; to resize, change AOI_HALF_WIDTH_DEG only
+# and keep the center fixed, so you stay over the same known-active region
+# rather than drifting into unvalidated ground.
+#
+# Before picking a size, each was checked against the actual Hansen GFC
+# 2021 loss layer (real loss %, not a guess) to confirm it isn't diluted
+# into mostly-empty forest or already-cleared land:
+#   half_width=0.75 (the original canary box)  -- 1.80% loss,  4,184 patches, ~20 GB
+#   half_width=1.50 (this box, "2x" -- current) -- 1.44% loss, 16,736 patches, ~80 GB
+#   half_width=2.25 ("3x")                      -- 1.02% loss, 37,661 patches, ~180 GB
+# Loss % drops as the box grows (you're pulling in more interior forest /
+# already-cleared land beyond the active edge), and a much bigger box risks
+# needing multiple GEE export tasks, which this script does not currently
+# support (see scripts/verify_gate_c.py's docstring). Re-check a new
+# candidate's loss % before committing to it -- see README.md "Area of
+# interest" for how.
+AOI_CENTER_LON, AOI_CENTER_LAT = -63.75, -9.75
+AOI_HALF_WIDTH_DEG = 1.50  # "2x" box, locked in -- see comment above for other sizes
 AOI_COORDS = [
-    [-64.5, -10.5],
-    [-63.0, -10.5],
-    [-63.0, -9.0],
-    [-64.5, -9.0],
+    [AOI_CENTER_LON - AOI_HALF_WIDTH_DEG, AOI_CENTER_LAT - AOI_HALF_WIDTH_DEG],
+    [AOI_CENTER_LON + AOI_HALF_WIDTH_DEG, AOI_CENTER_LAT - AOI_HALF_WIDTH_DEG],
+    [AOI_CENTER_LON + AOI_HALF_WIDTH_DEG, AOI_CENTER_LAT + AOI_HALF_WIDTH_DEG],
+    [AOI_CENTER_LON - AOI_HALF_WIDTH_DEG, AOI_CENTER_LAT + AOI_HALF_WIDTH_DEG],
 ]
 CRS = "EPSG:32720"  # UTM 20S, covers most of Rondonia; adjust if AOI moves
 
@@ -227,6 +247,17 @@ def write_export_manifest(raw_dir, task_id):
     return manifest_path
 
 
+def _expected_patch_count(aoi):
+    """Rough expected patch count from the AOI's true area (via EE, which
+    already accounts for polygon shape) divided by one patch's ground
+    footprint. Used by scripts/verify_gate_c.py to sanity-check that a
+    downloaded mixer.json's totalPatches roughly matches what was asked
+    for -- catching a silently truncated/partial export."""
+    area_m2 = aoi.area(maxError=1).getInfo()
+    patch_area_m2 = (SCALE * PATCH_SIZE) ** 2
+    return area_m2 / patch_area_m2
+
+
 def main():
     ee.Initialize(project=PROJECT)
     aoi = ee.Geometry.Polygon([AOI_COORDS])
@@ -237,12 +268,27 @@ def main():
     os.makedirs(raw_dir, exist_ok=True)
     manifest_path = write_export_manifest(raw_dir, task.id)
 
+    task_record = add_task_submission(
+        dataset_id=DATASET_ID,
+        task_id=task.id,
+        expected_file_prefix=FILE_PREFIX,
+        expected_geographic_extent={
+            "aoi_coords": AOI_COORDS,
+            "crs": CRS,
+            "expected_patch_count_estimate": _expected_patch_count(aoi),
+        },
+    )
+
     print(f"Submitted export task: {task.id}")
     print(f"Dataset contract: configs/datasets/{DATASET_ID}.yaml")
-    print(f"Export manifest: {manifest_path}")
+    print(f"Export manifest (provenance): {manifest_path}")
+    print(f"Task registry: artifacts/exports/{DATASET_ID}/export_manifest.json "
+          f"(retry_count={task_record['retry_count']})")
     print(f"Drive folder: {DRIVE_FOLDER} (prefix: {FILE_PREFIX})")
-    print("Check progress with: python scripts/gee_check_tasks.py")
+    print(f"Check progress with: python scripts/gee_check_tasks.py --dataset-id {DATASET_ID}")
     print(f"After download, place TFRecords in {raw_dir}/")
+    print(f"Then run: python scripts/build_download_manifest.py --dataset-id {DATASET_ID}")
+    print(f"Then run: python scripts/verify_gate_c.py --dataset-id {DATASET_ID}")
     print(f"Then run: python src/GFC_process_tfrecords4.py --dataset-id {DATASET_ID}")
 
 

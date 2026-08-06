@@ -22,6 +22,19 @@ row/column to be correct.
 import json
 from pathlib import Path
 
+# Block size in patch-grid units (block_size_tiles x block_size_tiles chips
+# per block). ~4 patches/side at 256px/10m chips is ~10.24km per block side
+# -- comfortably larger than a single chip's spatial autocorrelation
+# footprint while still leaving enough blocks to hit a 70/15/15 split.
+#
+# Single source of truth: both src/GFC_process_tfrecords4.py (which assigns
+# block_id at processing time) and scripts/build_download_manifest.py
+# (which backfills block_ids into the task registry pre-processing, from
+# mixer.json alone) must use the same value, or the registry's block
+# coverage silently disagrees with what processing actually produces later.
+# Import this constant rather than hardcoding it again.
+DEFAULT_BLOCK_SIZE_TILES = 4
+
 
 def load_mixer(raw_path: str) -> dict:
     """Load the mixer.json sidecar for a raw export directory.

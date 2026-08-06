@@ -52,12 +52,14 @@ No CUDA assumed — this was built against an Apple Silicon Mac (torch uses MPS/
 
 Every dataset used anywhere below is defined by a contract at `configs/datasets/<dataset_id>.yaml` — the single source of truth for its label definition, raw/processed paths, and Hansen GFC parameters. Processors and the trainer validate their inputs against this contract and fail loudly on a mismatch rather than silently training on the wrong labels.
 
-1. **Export chips from Earth Engine** (edit `DATASET_ID` in the script to match a contract with `label_mode: hansen_loss`):
+1. **Export chips from Earth Engine** (edit `DATASET_ID` in `scripts/gee_export_chips.py` to match a contract with `label_mode: hansen_loss`):
    ```bash
    python scripts/gee_export_chips.py
-   python scripts/gee_check_tasks.py   # poll until COMPLETED
+   python scripts/gee_check_tasks.py --dataset-id <dataset_id>   # poll until COMPLETED
    ```
    Lands sharded `.tfrecord` files in Google Drive.
+
+   **Area of interest**: also set in `scripts/gee_export_chips.py`, via `AOI_CENTER_LON`/`AOI_CENTER_LAT`/`AOI_HALF_WIDTH_DEG` (a square AOI of side `2*AOI_HALF_WIDTH_DEG` degrees around that center). To resize, change `AOI_HALF_WIDTH_DEG` only — keeping the center fixed keeps you over the same validated Rondônia fishbone hotspot rather than drifting somewhere unchecked. Before committing to a new size, check its real Hansen GFC loss percentage rather than guessing — a much bigger box dilutes the positive rate (more intact/already-cleared land, less active frontier) and risks needing multiple GEE export tasks, which isn't currently supported. The in-script comment above `AOI_CENTER_LON` records the measured loss %/patch count/download size at a few sizes already checked this way.
 
 2. **Pull the shards down** into `data/raw/<dataset_id>/` — either manually from Drive, or via:
    ```bash

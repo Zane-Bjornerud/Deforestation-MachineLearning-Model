@@ -14,16 +14,19 @@ from dataset_contract import (
     validate_processor_identity,
     write_dataset_manifest,
 )
-from spatial_blocks import load_export_task_id, load_mixer, patch_geometry
+from spatial_blocks import (
+    DEFAULT_BLOCK_SIZE_TILES,
+    load_export_task_id,
+    load_mixer,
+    patch_geometry,
+)
 
 PROCESSOR_NAME = "GFC_process_tfrecords4"
 
-# Block size in patch-grid units (block_size_tiles x block_size_tiles chips
-# per block) used to group chips for the block-level spatial split in
-# split_data.py. ~4 patches/side at 256px/10m chips is ~10.24km per block
-# side -- comfortably larger than a single chip's spatial autocorrelation
-# footprint while still leaving enough blocks to hit a 70/15/15 split.
-BLOCK_SIZE_TILES = 4
+# See src/spatial_blocks.py -- single source of truth, also used by
+# scripts/build_download_manifest.py to keep pre- and post-processing block
+# assignment consistent.
+BLOCK_SIZE_TILES = DEFAULT_BLOCK_SIZE_TILES
 
 
 def resize_array(array, target_size):
