@@ -91,21 +91,43 @@ Current procedure:
 6. Train a U-Net with focal loss plus Dice loss.
 7. Save best checkpoint to `outputs/checkpoints/best_model.pth`.
 
-Known properties of the split:
+Known properties of the split (as used for this checkpoint):
 - The split is stratified only by deforestation presence.
 - Spatial grouping is not used.
 - Scene grouping is not used.
 - Geographic independence is not guaranteed.
 - Normalization is computed before splitting, so the split is not strictly leakage-free.
 
+This applies to the v1 checkpoint above, which predates block-level spatial
+splitting. `src/split_data.py` now also supports a block-level spatial split
+(`create_block_splits`, see `src/spatial_blocks.py`) for datasets processed
+with a GEE `mixer.json` sidecar present -- chips are grouped into spatial
+blocks and whole contiguous bands of blocks (not individual chips) are
+assigned to train/val/test, with a buffer strip dropped at each band
+boundary. `src/split_data.py --dataset-id <id>` picks this automatically
+whenever the processed metadata carries `block_id`. It has not yet been used
+for a trained checkpoint -- `gee_full_gfc_v1` (Phase 1's actual baseline,
+not yet exported) is the first dataset expected to use it.
+
 ## Evaluation status
 
 Formal independent evaluation has not yet been established in the current repository. The training script reports validation IoU, F1, precision, and recall during training, and saves the best checkpoint based on validation IoU.
 
-Current evaluation caveats:
+Current evaluation caveats (for this checkpoint):
 - Validation and test data may not be geographically independent.
 - Neighboring chips and chips from the same scene may cross splits.
 - Reported metrics should be interpreted as random-chip split performance, not as fully independent geographic generalization.
+
+A future checkpoint trained on a block-split dataset (see above) will not
+carry this caveat in the same form -- its val/test bands are contiguous
+geographic regions disjoint from train, so its metrics should reflect
+generalization to unseen terrain rather than interpolation within
+already-seen scenes. That checkpoint's own caveat will instead be that
+train/val/test are large contiguous regions rather than a representative
+random sample, so any one split's composition (positive rate, landscape mix)
+can differ from the others depending on where deforestation activity falls
+within the AOI -- this is checked and printed by `create_block_splits` at
+split time.
 
 ## Geographic scope
 
@@ -121,10 +143,10 @@ The temporal design assumes that the change signal is meaningfully captured by t
 
 ## Known limitations
 
-- Split leakage risk remains because splitting is random and class-stratified only.
-- Spatial and scene-level grouping are not currently enforced.
-- Normalization statistics are computed before splitting.
-- Per-chip georeferencing metadata such as transform and bounds are not preserved in the processed numpy chips.
+- This v1 checkpoint has split leakage risk because its splitting was random and class-stratified only. `src/split_data.py` now also supports a block-level spatial split for GFC-labeled datasets with a `mixer.json` sidecar (see "Training procedure" above); this checkpoint predates that and was not retrained with it.
+- Spatial and scene-level grouping were not enforced for this checkpoint.
+- Normalization statistics are computed before splitting (still true for both split strategies -- normalization stats are computed from the full processed dataset in `GFC_process_tfrecords4.py`/legacy processors, not per-split. This is a separate leakage source from the train/val/test split itself and neither split strategy addresses it).
+- Per-chip georeferencing metadata (tile row/col, centroid, bounding box) is now preserved for chips processed with a `mixer.json` present (`src/spatial_blocks.py`), but is not present in this checkpoint's training data, which predates that field.
 - Channel order depends on stored metadata and should be verified against band_names.
 - Labels are threshold-derived and may miss weak or ambiguous deforestation signals.
 - The model has not yet been shown to generalize beyond the Rondônia training region.

@@ -111,9 +111,9 @@ An input must be rejected when:
 
 ## 11. Known uncertainties
 
-- Split strategy is class-stratified random split, not geography- or scene-grouped, so leakage risk exists.
-- Neighboring chips and same-scene chips may be split across train and test.
-- Normalization statistics are computed before splitting, introducing potential evaluation leakage.
-- Per-chip georeferencing fields such as transform and bounds are not preserved in current numpy chip format.
+- The split strategy documented above (class-stratified random split) is what this checkpoint was trained on. A block-level spatial split is now also available in `src/split_data.py` (`create_block_splits`, see `src/spatial_blocks.py`) for datasets processed with a GEE `mixer.json` sidecar -- it groups chips into spatial blocks and assigns contiguous geographic bands of blocks to train/val/test with a buffer between bands, instead of splitting individual chips at random. `src/split_data.py --dataset-id <id>` selects it automatically when the processed metadata carries `block_id`. This checkpoint's training data predates that field, so it still used the random split below.
+- Neighboring chips and same-scene chips may be split across train and test under the random split strategy; the block split above is the fix for this, not yet used for any trained checkpoint.
+- Normalization statistics are computed before splitting, introducing potential evaluation leakage -- this applies under both split strategies; neither addresses it.
+- Per-chip georeferencing fields (tile row/col, centroid, bounding box) are now preserved for chips processed with a `mixer.json` present (`src/spatial_blocks.py`), but are not present in this checkpoint's numpy chip format, which predates that field.
 - Actual per-chip channel order can vary unless explicitly re-ordered; metadata band_names is the local source of truth.
 - The currently-trained checkpoint (`best_model.pth`) was trained on chips processed from the legacy TFRecords in `data/*.tfrecord`. Those chips have all 18 canonical band *names* (see `src/band_names.py`), but their channel *order* is a fixed legacy order, not the index order shown in section 4 above — the model's learned weights are keyed to that legacy position, so don't assume position 0 is `B2_pre` for this checkpoint. A fresh export via `scripts/gee_export_chips.py` produces the exact canonical order in section 4; using that data requires retraining before section 4's index column applies literally.

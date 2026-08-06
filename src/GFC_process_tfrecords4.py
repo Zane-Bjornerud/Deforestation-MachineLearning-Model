@@ -1,6 +1,8 @@
+import json
 import numpy as np
 import os
 import pickle
+from collections import defaultdict
 from pathlib import Path
 import tensorflow as tf
 from scipy import ndimage
@@ -12,8 +14,16 @@ from dataset_contract import (
     validate_processor_identity,
     write_dataset_manifest,
 )
+from spatial_blocks import load_export_task_id, load_mixer, patch_geometry
 
 PROCESSOR_NAME = "GFC_process_tfrecords4"
+
+# Block size in patch-grid units (block_size_tiles x block_size_tiles chips
+# per block) used to group chips for the block-level spatial split in
+# split_data.py. ~4 patches/side at 256px/10m chips is ~10.24km per block
+# side -- comfortably larger than a single chip's spatial autocorrelation
+# footprint while still leaving enough blocks to hit a 70/15/15 split.
+BLOCK_SIZE_TILES = 4
 
 
 def resize_array(array, target_size):
@@ -60,6 +70,29 @@ def process_tfrecords_resolution_fixed(dataset_id):
     os.makedirs(f"{output_dir}/chips", exist_ok=True)
     os.makedirs(f"{output_dir}/masks", exist_ok=True)
 
+    # Spatial block metadata (tile row/col, centroid, bounding box, block_id)
+    # is derived from the export's mixer.json sidecar -- see
+    # src/spatial_blocks.py. It's optional: if no mixer.json is found (e.g.
+    # older raw exports), processing proceeds without it and split_data.py
+    # falls back to the random stratified split.
+    try:
+        mixer = load_mixer(contract.raw_path)
+        print(
+            f"Loaded mixer.json: patchesPerRow={mixer['patchesPerRow']} "
+            f"totalPatches={mixer.get('totalPatches')} "
+            f"block_size_tiles={BLOCK_SIZE_TILES}"
+        )
+    except FileNotFoundError as e:
+        print(f"WARNING: {e}")
+        print(
+            "Proceeding without spatial block metadata -- chips will not "
+            "carry tile/block/centroid fields, and split_data.py will fall "
+            "back to the random stratified split."
+        )
+        mixer = None
+    export_task_id = load_export_task_id(contract.raw_path)
+    global_patch_index = 0
+
     all_metadata = []
     chip_count = 0
 
@@ -95,6 +128,12 @@ def process_tfrecords_resolution_fixed(dataset_id):
         file_count = 0
         for raw_record in dataset:
             qc["total_records_read"] += 1
+            # Every record consumes one slot in the sequential patch grid,
+            # kept or skipped -- the running counter must stay in lockstep
+            # with shard order for tile_row/tile_col to be correct (see
+            # src/spatial_blocks.py module docstring).
+            this_patch_index = global_patch_index
+            global_patch_index += 1
             try:
                 # Parse the TF Example
                 example = tf.train.Example.FromString(raw_record.numpy())
@@ -221,24 +260,30 @@ def process_tfrecords_resolution_fixed(dataset_id):
                     has_defor = np.sum(mask) > 0
                     defor_fraction = float(np.mean(mask))
 
-                    all_metadata.append(
-                        {
-                            "chip_id": chip_id,
-                            "chip_path": f"chips/{chip_id}.npy",
-                            "mask_path": f"masks/{chip_id}.npy",
-                            "source_tfrecord": str(tfrecord_file),
-                            "has_deforestation": has_defor,
-                            "deforestation_fraction": defor_fraction,
-                            "patch_size": target_size[0],
-                            "n_bands": len(chip_bands),
-                            "band_names": band_names,
-                            "dataset_id": contract.dataset_id,
-                            "label_mode": contract.label_mode,
-                            "label_source": contract.label_source,
-                            "label_contract_version": contract.label_contract_version,
-                            "target_year": contract.target_year,
-                        }
-                    )
+                    metadata_entry = {
+                        "chip_id": chip_id,
+                        "chip_path": f"chips/{chip_id}.npy",
+                        "mask_path": f"masks/{chip_id}.npy",
+                        "source_tfrecord": str(tfrecord_file),
+                        "has_deforestation": has_defor,
+                        "deforestation_fraction": defor_fraction,
+                        "patch_size": target_size[0],
+                        "n_bands": len(chip_bands),
+                        "band_names": band_names,
+                        "dataset_id": contract.dataset_id,
+                        "label_mode": contract.label_mode,
+                        "label_source": contract.label_source,
+                        "label_contract_version": contract.label_contract_version,
+                        "target_year": contract.target_year,
+                    }
+
+                    if mixer is not None:
+                        metadata_entry.update(
+                            patch_geometry(mixer, this_patch_index, BLOCK_SIZE_TILES)
+                        )
+                        metadata_entry["source_export_task"] = export_task_id
+
+                    all_metadata.append(metadata_entry)
 
                     chip_count += 1
                     file_count += 1
@@ -278,6 +323,21 @@ def process_tfrecords_resolution_fixed(dataset_id):
     metadata_path = f"{output_dir}/metadata.pkl"
     with open(metadata_path, "wb") as f:
         pickle.dump(all_metadata, f)
+
+    # Block manifest: per-block chip/positive counts, for a quick sanity
+    # check on block composition before split_data.py assigns blocks to
+    # train/val/test. Only written when mixer.json was available.
+    if mixer is not None and all_metadata:
+        block_stats = defaultdict(lambda: {"n_chips": 0, "n_positive": 0})
+        for m in all_metadata:
+            s = block_stats[m["block_id"]]
+            s["n_chips"] += 1
+            s["n_positive"] += int(m["has_deforestation"])
+
+        blocks_manifest_path = f"{output_dir}/blocks_manifest.json"
+        with open(blocks_manifest_path, "w") as f:
+            json.dump(block_stats, f, indent=2)
+        print(f"\nBlock manifest ({len(block_stats)} blocks): {blocks_manifest_path}")
 
     # Print summary
     print("PROCESSING SUMMARY")
