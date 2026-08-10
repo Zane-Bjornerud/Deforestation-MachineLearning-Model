@@ -2,8 +2,8 @@ dataset_id: gee_full_gfc_v1
 label_mode: hansen_loss
 target_year: 2021
 processor: GFC_process_tfrecords4
-raw_path: data/raw/gee_full_gfc_v1
-processed_path: data/processed/gee_full_gfc_v1
+raw_path: /Volumes/LaCie/deforest_raw/gee_full_gfc_v1
+processed_path: /Volumes/LaCie/deforest_processed/gee_full_gfc_v1
 label_source: hansen_gfc
 label_contract_version: 1
 label_semantics: >

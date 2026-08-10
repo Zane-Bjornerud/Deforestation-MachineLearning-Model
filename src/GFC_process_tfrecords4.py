@@ -58,13 +58,17 @@ def process_tfrecords_resolution_fixed(dataset_id):
     contract = load_contract(dataset_id)
     validate_processor_identity(contract, PROCESSOR_NAME)
 
-    input_glob = f"{contract.raw_path}/*.tfrecord"
     output_dir = contract.processed_path
 
     assert_no_label_source_conflict(output_dir, contract.label_source)
 
-    # Find TFRecord files matching the explicit input glob only
-    tfrecord_files = sorted(Path().glob(input_glob))
+    # Find TFRecord files directly under raw_path. Glob from Path(raw_path)
+    # itself, not Path().glob(f"{raw_path}/*.tfrecord") -- the latter breaks
+    # with NotImplementedError: Non-relative patterns are unsupported as
+    # soon as raw_path is absolute (e.g. a path on an external drive like
+    # /Volumes/LaCie/...), since Python 3.11's Path.glob() can't take an
+    # absolute pattern on a relative base Path.
+    tfrecord_files = sorted(Path(contract.raw_path).glob("*.tfrecord"))
     print(f"Found {len(tfrecord_files)} files:")
     for f in tfrecord_files:
         print(f"  {f.name}")
