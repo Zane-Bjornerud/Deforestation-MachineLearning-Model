@@ -224,20 +224,27 @@ def _render_visual_panels(processed_path, metadata, n_visual, output_dir, seed=0
         )
 
         panels = [
-            ("pre RGB", pre_rgb, None),
-            ("post RGB", post_rgb, None),
-            ("pre NDVI", chip[idx["NDVI_pre"]], "RdYlGn"),
-            ("pre NBR", chip[idx["NBR_pre"]], "RdYlGn"),
-            ("post NDVI", chip[idx["NDVI_post"]], "RdYlGn"),
-            ("post NBR", chip[idx["NBR_post"]], "RdYlGn"),
-            ("dNDVI", chip[idx["dNDVI"]], "RdBu_r"),
-            ("dNBR", chip[idx["dNBR"]], "RdBu_r"),
-            ("GFC reference mask", mask, "gray"),
+            ("pre RGB", pre_rgb, None, None, None),
+            ("post RGB", post_rgb, None, None, None),
+            ("pre NDVI", chip[idx["NDVI_pre"]], "RdYlGn", None, None),
+            ("pre NBR", chip[idx["NBR_pre"]], "RdYlGn", None, None),
+            ("post NDVI", chip[idx["NDVI_post"]], "RdYlGn", None, None),
+            ("post NBR", chip[idx["NBR_post"]], "RdYlGn", None, None),
+            ("dNDVI", chip[idx["dNDVI"]], "RdBu_r", None, None),
+            ("dNBR", chip[idx["dNBR"]], "RdBu_r", None, None),
+            # vmin/vmax fixed at the mask's true semantic range (0/1), not
+            # autoscaled -- a chip with zero deforestation has an all-zero
+            # mask, and autoscaling a *constant* array through
+            # fig.colorbar() triggers matplotlib's "nonsingular" expansion
+            # (vmin=vmax=0 -> -0.1/0.1), which remaps 0.0 from black to
+            # mid-gray. That made empty (all-negative, fully correct) masks
+            # indistinguishable from missing/uncertain data at a glance.
+            ("GFC reference mask", mask, "gray", 0, 1),
         ]
 
         fig, axes = plt.subplots(3, 3, figsize=(12, 12))
-        for ax, (title, data, cmap) in zip(axes.ravel(), panels):
-            im = ax.imshow(data, cmap=cmap)
+        for ax, (title, data, cmap, vmin, vmax) in zip(axes.ravel(), panels):
+            im = ax.imshow(data, cmap=cmap, vmin=vmin, vmax=vmax)
             ax.set_title(title, fontsize=10)
             ax.axis("off")
             if cmap is not None:
