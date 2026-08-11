@@ -228,12 +228,19 @@ if __name__ == "__main__":
 
     # Create data loaders with smaller batch size due to 256x256 images
     batch_size = experiment.get("batch_size", 2)
+    # num_workers=0 (synchronous, single-process loading) was the long-standing
+    # default here -- safe on Mac but means zero overlap between disk I/O and
+    # model compute, which matters a lot once processed_path lives on a slow
+    # external drive. Configurable per-experiment (not hardcoded) so it can be
+    # tested/tuned without another code change, and easily reverted to 0 if a
+    # given machine hits Mac multiprocessing DataLoader issues.
+    num_workers = experiment.get("num_workers", 0)
     try:
         train_loader = DataLoader(
-            train_dataset, batch_size=batch_size, shuffle=True, num_workers=0
-        )  # num_workers=0 for Mac
+            train_dataset, batch_size=batch_size, shuffle=True, num_workers=num_workers
+        )
         val_loader = DataLoader(
-            val_dataset, batch_size=batch_size, shuffle=False, num_workers=0
+            val_dataset, batch_size=batch_size, shuffle=False, num_workers=num_workers
         )
 
         # Test loading one batch
