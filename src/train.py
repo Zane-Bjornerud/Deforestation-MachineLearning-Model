@@ -235,12 +235,26 @@ if __name__ == "__main__":
     # tested/tuned without another code change, and easily reverted to 0 if a
     # given machine hits Mac multiprocessing DataLoader issues.
     num_workers = experiment.get("num_workers", 0)
+    # persistent_workers keeps worker subprocesses alive across epochs instead
+    # of respawning them every epoch. Without it, each new worker (macOS uses
+    # the "spawn" start method) has to fully re-import this module -- re-running
+    # every module-level statement, including re-importing torch/smp from
+    # scratch -- once per worker, per epoch. Only valid when num_workers > 0.
+    persistent_workers = num_workers > 0
     try:
         train_loader = DataLoader(
-            train_dataset, batch_size=batch_size, shuffle=True, num_workers=num_workers
+            train_dataset,
+            batch_size=batch_size,
+            shuffle=True,
+            num_workers=num_workers,
+            persistent_workers=persistent_workers,
         )
         val_loader = DataLoader(
-            val_dataset, batch_size=batch_size, shuffle=False, num_workers=num_workers
+            val_dataset,
+            batch_size=batch_size,
+            shuffle=False,
+            num_workers=num_workers,
+            persistent_workers=persistent_workers,
         )
 
         # Test loading one batch
