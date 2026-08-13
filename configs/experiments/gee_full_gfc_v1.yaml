@@ -1,7 +1,7 @@
 experiment_id: gee_full_gfc_v1
 dataset_id: gee_full_gfc_v1
 checkpoint_dir: /Volumes/LaCie/deforest_outputs/checkpoints/gee_full_gfc_v1
-epochs: 3
-batch_size: 2
+epochs: 60
+batch_size: 8
 learning_rate: 1.0e-4
 num_workers: 2
