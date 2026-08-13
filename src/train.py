@@ -1,7 +1,15 @@
-import argparse
-import json
 import os
+
+# Must be set before torch (which loads OpenMP) is imported, otherwise the
+# duplicate-libomp initialization aborts the process with OMP Error #15 on
+# this Mac. Setdefault so callers can still override from the shell.
+os.environ.setdefault("KMP_DUPLICATE_LIB_OK", "TRUE")
+
+import argparse
+import atexit
+import json
 import subprocess
+import sys
 import time
 from datetime import datetime, timezone
 
@@ -92,6 +100,32 @@ def setup_run_dir(experiment, contract, device_str, actual_channels):
     with open(os.path.join(metrics_dir, "config.json"), "w") as f:
         json.dump(config_snapshot, f, indent=2)
     return metrics_dir, run_checkpoint_dir
+
+
+class _Tee:
+    """Mirror writes to multiple streams. Used to send stdout to both the
+    terminal and the run's train.log without needing an external `| tee`."""
+
+    def __init__(self, *streams):
+        self.streams = streams
+
+    def write(self, data):
+        for s in self.streams:
+            s.write(data)
+            s.flush()
+
+    def flush(self):
+        for s in self.streams:
+            s.flush()
+
+
+def _tee_stdout_to(log_path):
+    """Duplicate stdout+stderr to log_path so `python src/train.py ...` on
+    its own captures the same output that piping through `| tee` used to."""
+    f = open(log_path, "w")
+    atexit.register(f.close)
+    sys.stdout = _Tee(sys.__stdout__, f)
+    sys.stderr = _Tee(sys.__stderr__, f)
 
 
 if torch.backends.mps.is_available():
@@ -361,8 +395,11 @@ if __name__ == "__main__":
             experiment, contract, str(DEVICE), actual_channels
         )
         metrics_path = os.path.join(metrics_dir, "metrics.jsonl")
+        log_path = os.path.join(metrics_dir, "train.log")
+        _tee_stdout_to(log_path)
         print(f"Run metrics: {metrics_dir}")
         print(f"Run checkpoints: {run_checkpoint_dir}")
+        print(f"Run log: {log_path}")
 
         # Train model
         print("Starting training...")
