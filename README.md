@@ -1,3 +1,21 @@
+![Status](https://img.shields.io/badge/Status-Work%20in%20Progress-yellow)
+![Field](https://img.shields.io/badge/Field-Remote%20Sensing-blue)
+![Task](https://img.shields.io/badge/Task-Semantic%20Segmentation-8E44AD)
+
+![Domain](https://img.shields.io/badge/Domain-Deforestation%20Detection-2E7D32)
+![Python](https://img.shields.io/badge/Python-3.11-3776AB?logo=python&logoColor=white)
+![PyTorch](https://img.shields.io/badge/PyTorch-EE4C2C?logo=pytorch&logoColor=white)
+![NumPy](https://img.shields.io/badge/NumPy-013243?logo=numpy&logoColor=white)
+![Architecture](https://img.shields.io/badge/Model-U--Net%20%2B%20ResNet34-D84315)
+![Earth Engine](https://img.shields.io/badge/Google%20Earth%20Engine-4285F4?logo=googleearth&logoColor=white)
+![Sentinel-2](https://img.shields.io/badge/Imagery-Sentinel--2%20SR-0B5394)
+![Labels](https://img.shields.io/badge/Labels-Hansen%20GFC%202025%20v1.13-1B5E20)
+![AOI](https://img.shields.io/badge/AOI-Rond%C3%B4nia%2C%20Brazil-009739)
+![Input](https://img.shields.io/badge/Input-18ch%20256%C3%97256-455A64)
+![Conda](https://img.shields.io/badge/conda-44A833?logo=anaconda&logoColor=white)
+![Hardware](https://img.shields.io/badge/Backend-Apple%20Silicon%20MPS-000000?logo=apple&logoColor=white)
+![Code only](https://img.shields.io/badge/Repo-Code%20Only%20(no%20data%2Fweights)-lightgrey)
+
 # Deforest
 
 Deforestation detection over Rondônia, Brazil, from Sentinel-2 imagery. A U-Net (ResNet34 encoder) predicts pixel-level forest loss from an 18-channel pre/post dry-season composite, using annual loss labels from the Hansen Global Forest Change dataset.
