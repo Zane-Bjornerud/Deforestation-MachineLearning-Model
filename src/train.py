@@ -458,6 +458,17 @@ if __name__ == "__main__":
             scheduler=scheduler,
         )
 
+        # Auto-render training curves so every completed run has a plot
+        # ready to look at. Failure here should not fail the run itself
+        # (metrics + checkpoints are already on disk).
+        try:
+            from plot_run import plot_run
+
+            out = plot_run(metrics_dir)
+            print(f"Wrote {out}")
+        except Exception as e:
+            print(f"WARNING: could not render curves.png: {e}")
+
     except Exception as e:
         print(f"Error during training setup: {e}")
         import traceback
