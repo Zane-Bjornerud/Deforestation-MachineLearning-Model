@@ -90,6 +90,8 @@ def setup_run_dir(experiment, contract, device_str, actual_channels):
         "epochs": experiment.get("epochs", 20),
         "batch_size": experiment.get("batch_size", 2),
         "learning_rate": experiment.get("learning_rate", 1e-4),
+        "scheduler": experiment.get("scheduler"),
+        "eta_min": experiment.get("eta_min", 1e-6),
         "num_workers": experiment.get("num_workers", 0),
         "device": device_str,
         "input_channels": actual_channels,
@@ -167,12 +169,48 @@ def dice_loss(logits, y, eps=1e-6):
     return 1 - (num / den).mean()
 
 
+def build_scheduler(optimizer, experiment):
+    """Build an LR scheduler from the experiment config, or return None if
+    none is requested (preserves the constant-LR behavior of older runs).
+
+    Currently supported:
+        scheduler: cosine   -> CosineAnnealingLR(T_max=epochs, eta_min=eta_min)
+
+    Cosine annealing was picked as the default because it's a deterministic,
+    smooth schedule that doesn't react to noisy val metrics (unlike
+    ReduceLROnPlateau) and doesn't introduce discontinuities (unlike StepLR).
+    T_max matches the run's epoch budget so LR completes its decay exactly at
+    the last epoch; eta_min=1e-6 leaves the model at 1% of initial LR so the
+    final epochs still fine-tune rather than freezing outright."""
+    kind = experiment.get("scheduler")
+    if kind in (None, "none", "None", ""):
+        return None
+    if kind == "cosine":
+        return torch.optim.lr_scheduler.CosineAnnealingLR(
+            optimizer,
+            T_max=experiment.get("epochs", 20),
+            eta_min=experiment.get("eta_min", 1e-6),
+        )
+    raise ValueError(f"Unknown scheduler {kind!r}. Supported: 'cosine' or omit.")
+
+
 # Training loop
-def train_model(train_loader, val_loader, checkpoint_dir, epochs=50, metrics_path=None):
+def train_model(
+    train_loader,
+    val_loader,
+    checkpoint_dir,
+    epochs=50,
+    metrics_path=None,
+    scheduler=None,
+):
     best_iou = 0
 
     for epoch in range(epochs):
         epoch_start = time.time()
+        # Capture the LR used for this epoch's steps BEFORE any post-epoch
+        # scheduler.step(). Logged in the JSONL row so metrics.jsonl records
+        # exactly what LR each epoch's weights were trained with.
+        lr_this_epoch = opt.param_groups[0]["lr"]
         model.train()
         train_loss = 0
 
@@ -261,6 +299,7 @@ def train_model(train_loader, val_loader, checkpoint_dir, epochs=50, metrics_pat
                 "f1": f1,
                 "precision": precision,
                 "recall": recall,
+                "learning_rate": lr_this_epoch,
                 "epoch_seconds": time.time() - epoch_start,
                 "is_new_best": is_new_best,
                 "best_iou_so_far": best_iou,
@@ -271,6 +310,11 @@ def train_model(train_loader, val_loader, checkpoint_dir, epochs=50, metrics_pat
                     f.write(json.dumps(row) + "\n")
             except Exception as e:
                 print(f"  WARNING: failed to append metrics row: {e}")
+
+        # Step the scheduler after the epoch has been fully scored + logged,
+        # so the LR that trained this epoch is the one recorded above.
+        if scheduler is not None:
+            scheduler.step()
 
     print(f"Training complete! Best IoU: {best_iou:.3f}")
 
@@ -350,6 +394,8 @@ if __name__ == "__main__":
     opt = torch.optim.AdamW(
         model.parameters(), lr=experiment.get("learning_rate", 1e-4)
     )
+    scheduler = build_scheduler(opt, experiment)
+    print(f"Scheduler: {experiment.get('scheduler') or 'none'}")
 
     # Create data loaders with smaller batch size due to 256x256 images
     batch_size = experiment.get("batch_size", 2)
@@ -409,6 +455,7 @@ if __name__ == "__main__":
             run_checkpoint_dir,
             epochs=experiment.get("epochs", 20),
             metrics_path=metrics_path,
+            scheduler=scheduler,
         )
 
     except Exception as e:

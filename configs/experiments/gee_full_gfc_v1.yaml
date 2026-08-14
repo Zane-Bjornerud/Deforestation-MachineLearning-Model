@@ -4,4 +4,6 @@ checkpoint_dir: /Volumes/LaCie/deforest_outputs/checkpoints/gee_full_gfc_v1
 epochs: 60
 batch_size: 8
 learning_rate: 1.0e-4
+scheduler: cosine
+eta_min: 1.0e-6
 num_workers: 2
