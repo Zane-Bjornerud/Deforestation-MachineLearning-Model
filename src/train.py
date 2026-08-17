@@ -92,6 +92,8 @@ def setup_run_dir(experiment, contract, device_str, actual_channels):
         "learning_rate": experiment.get("learning_rate", 1e-4),
         "scheduler": experiment.get("scheduler"),
         "eta_min": experiment.get("eta_min", 1e-6),
+        "alpha": experiment.get("alpha", 0.75),
+        "gamma": experiment.get("gamma", 2.0),
         "num_workers": experiment.get("num_workers", 0),
         "device": device_str,
         "input_channels": actual_channels,
@@ -169,6 +171,16 @@ def dice_loss(logits, y, eps=1e-6):
     return 1 - (num / den).mean()
 
 
+def build_combined_loss(alpha=0.75, gamma=2.0):
+    """Return a callable(logits, y) -> scalar loss that adds focal(alpha,
+    gamma) and dice. Baking alpha/gamma into a closure at construction time
+    (rather than reading them on every batch) keeps the hot path clean and
+    matches the pattern used for the scheduler."""
+    def combined(logits, y):
+        return focal_loss(logits, y, alpha=alpha, gamma=gamma) + dice_loss(logits, y)
+    return combined
+
+
 def build_scheduler(optimizer, experiment):
     """Build an LR scheduler from the experiment config, or return None if
     none is requested (preserves the constant-LR behavior of older runs).
@@ -202,7 +214,10 @@ def train_model(
     epochs=50,
     metrics_path=None,
     scheduler=None,
+    loss_fn=None,
 ):
+    if loss_fn is None:
+        loss_fn = build_combined_loss()
     best_iou = 0
 
     for epoch in range(epochs):
@@ -229,7 +244,7 @@ def train_model(
                     print("Mask values:", torch.unique(yb))
 
                 logits = model(xb)
-                loss = bce(logits, yb) + dice_loss(logits, yb)
+                loss = loss_fn(logits, yb)
 
                 opt.zero_grad()
                 loss.backward()
@@ -251,7 +266,7 @@ def train_model(
                 try:
                     xb, yb = xb.to(DEVICE), yb.to(DEVICE)
                     logits = model(xb)
-                    loss = bce(logits, yb) + dice_loss(logits, yb)
+                    loss = loss_fn(logits, yb)
                     val_loss += loss.item()
 
                     pb = torch.sigmoid(logits) > 0.5
@@ -395,7 +410,12 @@ if __name__ == "__main__":
         model.parameters(), lr=experiment.get("learning_rate", 1e-4)
     )
     scheduler = build_scheduler(opt, experiment)
+    loss_fn = build_combined_loss(
+        alpha=experiment.get("alpha", 0.75),
+        gamma=experiment.get("gamma", 2.0),
+    )
     print(f"Scheduler: {experiment.get('scheduler') or 'none'}")
+    print(f"Loss: focal(alpha={experiment.get('alpha', 0.75)}, gamma={experiment.get('gamma', 2.0)}) + dice")
 
     # Create data loaders with smaller batch size due to 256x256 images
     batch_size = experiment.get("batch_size", 2)
@@ -456,6 +476,7 @@ if __name__ == "__main__":
             epochs=experiment.get("epochs", 20),
             metrics_path=metrics_path,
             scheduler=scheduler,
+            loss_fn=loss_fn,
         )
 
         # Auto-render training curves so every completed run has a plot
@@ -468,6 +489,16 @@ if __name__ == "__main__":
             print(f"Wrote {out}")
         except Exception as e:
             print(f"WARNING: could not render curves.png: {e}")
+
+        # Refresh the experiment-wide comparison plot so this run is
+        # overlaid against every prior run in the same experiment folder.
+        try:
+            from plot_experiment import plot_experiment
+
+            out = plot_experiment(os.path.dirname(metrics_dir))
+            print(f"Wrote {out}")
+        except Exception as e:
+            print(f"WARNING: could not render comparison.png: {e}")
 
     except Exception as e:
         print(f"Error during training setup: {e}")
