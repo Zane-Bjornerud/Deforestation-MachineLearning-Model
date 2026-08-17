@@ -17,9 +17,14 @@ and degrades its ability to estimate real-world performance. Use the val
 metrics already logged during training for tuning decisions.
 """
 
+import os
+
+# Set before torch loads OpenMP, matching train.py. Without this the script
+# aborts with OMP Error #15 on Mac.
+os.environ.setdefault("KMP_DUPLICATE_LIB_OK", "TRUE")
+
 import argparse
 import json
-import os
 from datetime import datetime, timezone
 from pathlib import Path
 
