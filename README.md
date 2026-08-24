@@ -154,18 +154,3 @@ Every dataset used anywhere below is defined by a contract at `configs/datasets/
 - Dataset files live under `data/raw/` and `data/processed/` (git-ignored).
 - Generic manifest-based downloads (S3/HF/HTTP) are supported via `data/manifest.tsv` + `scripts/download_data.sh`; Google Earth Engine exports use the Drive-based flow above instead.
 
-## Status
-
-- **Phase 0 (pipeline audit) — done.** Traced the original training pipeline end to end and documented it (`docs/model-input-specification.md`, `docs/model-card.md`). Found that the initial model was trained on change-index-derived labels (dNBR/dNDVI thresholds), not true annual forest-loss labels.
-- **Phase 1 (Hansen GFC retrain) — baseline established.** Replaced the threshold-derived labels with the Hansen Global Forest Change dataset (`UMD/hansen/global_forest_change_2025_v1_13`, `treecover2000` + `lossyear`), which gives a real annual loss signal instead of a heuristic change threshold. Each dataset used anywhere in the pipeline is pinned to an explicit, versioned contract under `configs/datasets/`:
-  - `existing_gfc_recovery_v0` — reprocessed legacy export used to shake out pipeline bugs. Not a results baseline.
-  - `gee_canary_gfc_v1` — small fresh GEE export used to validate export → download → process → split → train end to end. Passed all gates.
-  - `gee_full_gfc_v1` — the Phase 1 baseline. Exported, processed, and trained; Gate C (download integrity) verified. **Current best val IoU 0.5327** (60 epochs, cosine LR schedule, focal α=0.5 + γ=2.0, threshold 0.60). Held-out test set has not been touched.
-  - `legacy_threshold_v1` — the original change-based labels, kept only as a comparison point against the Hansen-based results.
-- **Phase 1 tuning experiments so far.** All runs on `gee_full_gfc_v1`, MPS-accelerated on Apple Silicon:
-  - Enabled MPS by replacing `smp.losses.FocalLoss` with a local focal implementation that avoids the MPS-incompatible `.type()` call. ~30× speedup vs. CPU.
-  - Cosine LR schedule vs. constant LR: comparable peak IoU, ~3× tighter late-stage IoU variance (much more trustworthy `best_model.pth`).
-  - Focal alpha rebalance 0.75 → 0.5: **+0.014 IoU**. Diagnostic: threshold sweep on the α=0.75 checkpoint peaked at 0.70 (evidence the model was over-predicting positives); α=0.5 model is well-calibrated at ~0.55–0.60.
-  - 30 → 60 epochs at α=0.5: +0.008 IoU (diminishing returns; model plateaued by epoch 49).
-
-Next up: **positive-oversampled `WeightedRandomSampler`** — the highest expected-value remaining experiment (segmentation literature suggests +0.02 to +0.05 IoU on class-imbalanced tasks). Then final test-set evaluation via `src/test.py`.
