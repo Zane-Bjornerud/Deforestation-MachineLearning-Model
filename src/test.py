@@ -37,7 +37,7 @@ from dataset_contract import load_contract
 from train import DEVICE, dice_loss, focal_loss, load_experiment_config
 
 
-def evaluate_test(model, loader):
+def evaluate_test(model, loader, tta=False):
     """Same aggregation as train.train_model's val loop, isolated so this
     file doesn't depend on the training loop internals."""
     inter = union = total_loss = pred_pos = actual_pos = 0
@@ -47,7 +47,15 @@ def evaluate_test(model, loader):
             logits = model(xb)
             loss = focal_loss(logits, yb) + dice_loss(logits, yb)
             total_loss += loss.item()
-            pb = torch.sigmoid(logits) > 0.5
+            if tta:
+                # Average sigmoid probs over identity + H-flip + V-flip + HV-flip
+                prob = torch.sigmoid(logits)
+                prob = prob + torch.sigmoid(model(xb.flip(-1))).flip(-1)
+                prob = prob + torch.sigmoid(model(xb.flip(-2))).flip(-2)
+                prob = prob + torch.sigmoid(model(xb.flip(-1, -2))).flip(-1, -2)
+                pb = (prob / 4) > 0.5
+            else:
+                pb = torch.sigmoid(logits) > 0.5
             yb_bool = yb.bool()
             inter += (pb & yb_bool).sum().item()
             union += (pb | yb_bool).sum().item()
@@ -64,7 +72,7 @@ def evaluate_test(model, loader):
     }
 
 
-def resolve_out_path(ckpt: Path, experiment_id: str) -> Path:
+def resolve_out_path(ckpt: Path, experiment_id: str, split: str = "test", tta: bool = False) -> Path:
     """If the checkpoint sits under a per-run stamp folder (the layout
     setup_run_dir writes into), put test_metrics.json into the matching
     outputs/metrics/<experiment_id>/<stamp>/ dir so the test number stays
@@ -72,8 +80,8 @@ def resolve_out_path(ckpt: Path, experiment_id: str) -> Path:
     run_stamp = ckpt.parent.name
     default_dir = Path("outputs/metrics") / experiment_id / run_stamp
     if default_dir.exists():
-        return default_dir / "test_metrics.json"
-    return ckpt.parent / "test_metrics.json"
+        return default_dir / f"{split}_metrics{'_tta' if tta else ''}.json"
+    return ckpt.parent / f"{split}_metrics{'_tta' if tta else ''}.json"
 
 
 if __name__ == "__main__":
@@ -102,6 +110,8 @@ if __name__ == "__main__":
         default=None,
         help="Override the default output path.",
     )
+    parser.add_argument("--tta", action="store_true", help="Test-time augmentation (4x compute).")
+    parser.add_argument("--split", default="test", choices=["test", "val"])
     args = parser.parse_args()
 
     ckpt = Path(args.checkpoint)
@@ -112,26 +122,26 @@ if __name__ == "__main__":
     contract = load_contract(experiment["dataset_id"])
 
     data_dir = contract.processed_path
-    test_metadata = f"{data_dir}/test_metadata.pkl"
+    split_metadata = f"{data_dir}/{args.split}_metadata.pkl"
     norm_stats = f"{data_dir}/normalization_stats.pkl"
-    if not os.path.exists(test_metadata):
+    if not os.path.exists(split_metadata):
         raise FileNotFoundError(
-            f"{test_metadata} not found; run split_data.py --dataset-id "
+            f"{split_metadata} not found; run split_data.py --dataset-id "
             f"{contract.dataset_id} first"
         )
 
-    print(f"=== Test: {experiment['experiment_id']} ===")
+    print(f"=== {args.split}: {experiment['experiment_id']} ===")
     print(f"Checkpoint: {ckpt}")
-    print(f"Test split: {test_metadata}")
-    print(f"Device: {DEVICE}")
-    print(
-        "REMINDER: this should only be run ONCE, after all hyperparameter "
-        "decisions are locked in. Re-running with different checkpoints "
-        "contaminates the test set."
-    )
+    print(f"Split: {split_metadata}")
+    print(f"Device: {DEVICE}  TTA: {args.tta}")
+    if args.split == "test":
+        print(
+            "REMINDER: only run --split test ONCE, after all hyperparameter "
+            "decisions are locked in."
+        )
 
     dataset = DeforestationDataset(
-        data_dir, test_metadata, norm_stats, contract, augment=False
+        data_dir, split_metadata, norm_stats, contract, augment=False
     )
     loader = DataLoader(
         dataset, batch_size=args.batch_size, shuffle=False, num_workers=0
@@ -144,9 +154,10 @@ if __name__ == "__main__":
     model.load_state_dict(torch.load(ckpt, map_location=DEVICE))
     model.eval()
 
-    metrics = evaluate_test(model, loader)
+    metrics = evaluate_test(model, loader, tta=args.tta)
     metrics.update({
-        "split": "test",
+        "split": args.split,
+        "tta": args.tta,
         "n_samples": len(dataset),
         "checkpoint": str(ckpt),
         "experiment_id": experiment["experiment_id"],
@@ -157,13 +168,13 @@ if __name__ == "__main__":
     })
 
     out_path = Path(args.out_json) if args.out_json else resolve_out_path(
-        ckpt, experiment["experiment_id"]
+        ckpt, experiment["experiment_id"], args.split, args.tta
     )
     out_path.parent.mkdir(parents=True, exist_ok=True)
     with open(out_path, "w") as f:
         json.dump(metrics, f, indent=2)
 
-    print(f"\nTest metrics:")
+    print(f"\n{args.split} metrics{' (TTA)' if args.tta else ''}:")
     print(f"  IoU:       {metrics['iou']:.4f}")
     print(f"  F1:        {metrics['f1']:.4f}")
     print(f"  Precision: {metrics['precision']:.4f}")
