@@ -2,20 +2,22 @@
 
 ## 1. Model identity
 
-- Model name: Deforestation segmentation model (change-index labels)
-- Model version: Current main branch, change-based labeling pipeline
+- Model name: Deforestation segmentation model (Hansen GFC labels; legacy change-index labels also supported)
+- Model version: Current main branch — Hansen-loss pipeline primary, change-based pipeline retained as legacy
 - Architecture: U-Net with ResNet34 encoder
-- Checkpoint: best_model.pth
+- Checkpoint: `<experiment.checkpoint_dir>/<run_stamp>/best_model.pth` (per-experiment, per-run; see `configs/experiments/<id>.yaml`)
 - Number of input channels: 18
 - Output channels: 1 (binary mask logits)
 
 ## 2. Intended prediction target
 
-- Positive-pixel definition: Pixel is positive when both dNBR and dNDVI cross configured disturbance thresholds.
+- Positive-pixel definition:
+  - Hansen (current): `treecover2000 ≥ forest_cover_threshold` AND Hansen `lossyear` matches the dataset's `target_year`.
+  - Change-based (legacy): pixel satisfies both dNBR and dNDVI disturbance thresholds.
 - Negative-pixel definition: All other pixels.
 - Ignore-pixel definition: None explicitly defined.
-- Label source: Derived from input change indices, not directly from external label band during this pipeline.
-- Label version: Threshold-based change labels, selected threshold profile currently sensitive.
+- Label source: `hansen_gfc` for active datasets (`gee_full_gfc_v1`, `gee_canary_gfc_v1`, `existing_gfc_recovery_v0`); `change_index_threshold` for `legacy_threshold_v1`.
+- Label version: pinned per dataset contract in `configs/datasets/<id>.yaml`.
 - Label time period: Change between pre window 2020-06-01 to 2020-09-30 and post window 2021-06-01 to 2021-09-30
 
 ## 3. Tensor contract
@@ -25,7 +27,7 @@
 - Channel dimension position: First dimension (channel-first)
 - Accepted image dimensions: Pipeline standardizes to 256 x 256 before training
 - Default tile dimensions: 256 x 256
-- No-data representation: No explicit sentinel value documented; invlaid handling is not explicitly enforced in dataset loader
+- No-data representation: No explicit sentinel value documented; invalid handling is not explicitly enforced in dataset loader
 
 ## 4. Channel order
 
@@ -57,25 +59,25 @@
 - Spatial resolution: Exported at 10 m pixel size
 - CRS: EPSG:32720
 - Cloud filtering: Cloud probability threshold less than 40
-- Cloud masking: Per-scene probability amsk join and threshold
+- Cloud masking: Per-scene probability mask join and threshold
 - Temporal composite: Median composite over configured pre and post windows
 - Date-selection rules: Fixed pre and post ranges in script constants
 
 ## 6. Preprocessing
 
 1. Read TFRecord examples and parse feature bands.
-2. Skip original label field in change-based pipeline.
+2. Read the target label band: Hansen pipeline uses `lossyear` + `treecover2000`; change-based (legacy) pipeline ignores any stored label field and derives from indices instead.
 3. Reshape each band to square and resize to 256 x 256 if needed.
-4. Stack channels as channel-first tensor
-5. Generate binary target mask from dNBR and dNDVI thresholds.
+4. Stack channels as channel-first tensor.
+5. Generate binary target mask: Hansen pipeline uses `treecover2000 ≥ forest_cover_threshold` AND `lossyear == target_year`; change-based (legacy) pipeline uses dNBR AND dNDVI disturbance thresholds.
 6. Save chip and mask as float32 numpy arrays.
 7. Save metadata including band names and source provenance.
 
 ## 7. Normalization
 
-- Method: Per-channel z-score normaliztion
-- Statistics source: Sampled processed chips from full metadata file
-- Training-only statistics: No, currently computed before train/val/test split
+- Method: Per-channel z-score normalization
+- Statistics source: Sampled processed chips from train metadata file
+- Training-only statistics: Yes
 - Mean per channel: Stored in normalization_stats.pkl
 - Standard deviation per channel: Stored in normalization_stats.pkl
 - Clipping: None explicitly applied
@@ -83,17 +85,17 @@
 
 ## 8. Spatial assumptions
 
-- Training region: AOI rectange in Rondonia defined in export script
+- Training region: AOI rectangle in Rondônia defined in export script
 - Chip size: 256 x 256
 - Pixel size: 10 m served grid
 - Projection: EPSG:32720
-- Resampling: Resize to 256 x 256 in processor when needed; export itslef uses fixed patch dimensions
+- Resampling: Resize to 256 x 256 in processor when needed; export itself uses fixed patch dimensions
 - Tile overlap: Not explicitly configured in current export script
 - Padding: Not explicitly configured
 
 ## 9. Temporal assumptions
 
-- Baseline period: 202-06-01 to 2020-09-30
+- Baseline period: 2020-06-01 to 2020-09-30
 - Comparison period: 2021-06-01 to 2021-09-30
 - Label period: Thresholded change between baseline and comparison composites
 - Seasonal matching rules: Dry-season window matching across years
@@ -104,7 +106,7 @@ An input must be rejected when:
 
 - Channel count is not exactly 18.
 - Channel order does not match expected canonical order or recorded metadata order
-- Spatial dimensiosn are not 256 x 256 and no approved resize policy is applied.
+- Spatial dimensions are not 256 x 256 and no approved resize policy is applied.
 - Input contains non-finite values and no cleaning policy is applied.
 - Required change channels are missing for change-based target generation
 - CRS or pixel size metadata is missing or incompatible with training contract during upstream data creation.
@@ -113,7 +115,6 @@ An input must be rejected when:
 
 - The split strategy documented above (class-stratified random split) is what this checkpoint was trained on. A block-level spatial split is now also available in `src/split_data.py` (`create_block_splits`, see `src/spatial_blocks.py`) for datasets processed with a GEE `mixer.json` sidecar -- it groups chips into spatial blocks and assigns contiguous geographic bands of blocks to train/val/test with a buffer between bands, instead of splitting individual chips at random. `src/split_data.py --dataset-id <id>` selects it automatically when the processed metadata carries `block_id`. This checkpoint's training data predates that field, so it still used the random split below.
 - Neighboring chips and same-scene chips may be split across train and test under the random split strategy; the block split above is the fix for this, not yet used for any trained checkpoint.
-- Normalization statistics are computed before splitting, introducing potential evaluation leakage -- this applies under both split strategies; neither addresses it.
 - Per-chip georeferencing fields (tile row/col, centroid, bounding box) are now preserved for chips processed with a `mixer.json` present (`src/spatial_blocks.py`), but are not present in this checkpoint's numpy chip format, which predates that field.
 - Actual per-chip channel order can vary unless explicitly re-ordered; metadata band_names is the local source of truth.
 - The currently-trained checkpoint (`best_model.pth`) was trained on chips processed from the legacy TFRecords in `data/*.tfrecord`. Those chips have all 18 canonical band *names* (see `src/band_names.py`), but their channel *order* is a fixed legacy order, not the index order shown in section 4 above — the model's learned weights are keyed to that legacy position, so don't assume position 0 is `B2_pre` for this checkpoint. A fresh export via `scripts/gee_export_chips.py` produces the exact canonical order in section 4; using that data requires retraining before section 4's index column applies literally.

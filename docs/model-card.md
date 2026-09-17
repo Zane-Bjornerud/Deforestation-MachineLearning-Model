@@ -2,7 +2,7 @@
 
 ## Model summary
 
-UNet Rondônia v1 is a binary semantic segmentation model for deforestation detection in Sentinel-2 imagery over Rondônia, Brazil. It uses a U-Net with a ResNet34 encoder and 18 input channels derived from pre/post-season optical bands and change indices. The current training pipeline uses threshold-based change labels built from dNBR and dNDVI.
+UNet Rondônia v1 is a binary semantic segmentation model for deforestation detection in Sentinel-2 imagery over Rondônia, Brazil. It uses a U-Net with a ResNet34 encoder and 18 input channels derived from pre/post-season optical bands and change indices. The current pipeline primarily uses Hansen Global Forest Change (GFC) loss labels (see `configs/datasets/gee_full_gfc_v1.yaml`); a legacy change-based labeling path (dNBR/dNDVI thresholding) is also supported via `legacy_threshold_v1`.
 
 ## Intended use
 
@@ -39,7 +39,9 @@ Current export and processing settings:
   - Pre: 2020-06-01 to 2020-09-30
   - Post: 2021-06-01 to 2021-09-30
 
-The current labels are derived from change indices, not directly from the original label band. Positive pixels are defined by thresholding both dNBR and dNDVI.
+Labels come from one of two sources, chosen per dataset contract:
+- Hansen (current, `label_mode: hansen_loss`): positive pixels are those with `treecover2000 ≥ forest_cover_threshold` AND recorded forest loss in the dataset's `target_year` (see `configs/datasets/gee_full_gfc_v1.yaml`).
+- Change-based (legacy, `label_mode: change_based`): positive pixels are those satisfying both dNBR and dNDVI disturbance thresholds. Retained only for comparison against the Hansen pipeline.
 
 ## Input data
 
@@ -65,17 +67,19 @@ Channel order:
 17. dNDVI
 18. dNBR
 
-Normalization is per-channel z-score normalization using statistics computed from the processed dataset.
+Normalization is per-channel z-score normalization using statistics computed from the training split only, then applied to val and test.
 
 ## Prediction target
 
 The prediction target is binary deforestation segmentation.
 
-- Positive-pixel definition: pixel satisfies both dNBR and dNDVI disturbance thresholds.
+- Positive-pixel definition:
+  - Hansen (current): `treecover2000 ≥ forest_cover_threshold` AND Hansen `lossyear` matches the dataset's `target_year`.
+  - Change-based (legacy): pixel satisfies both dNBR and dNDVI disturbance thresholds.
 - Negative-pixel definition: all remaining pixels.
 - Ignore-pixel definition: none is explicitly defined in the current pipeline.
-- Label source: derived change-based labels from processed channels.
-- Label version: sensitive threshold profile in the current processor.
+- Label source: `hansen_gfc` for the active datasets; `change_index_threshold` for `legacy_threshold_v1`.
+- Label version: pinned per dataset contract in `configs/datasets/<id>.yaml` (Hansen asset id + forest-cover threshold, or the `sensitive` threshold profile for change-based).
 - Label time period: comparison between the pre and post compositing windows.
 
 ## Training procedure
@@ -85,29 +89,18 @@ Training uses the processed metadata splits produced by `src/split_data.py` and 
 Current procedure:
 1. Load processed chip and mask metadata.
 2. Split metadata into train/validation/test using class-stratified random splitting.
-3. Compute normalization statistics from the full processed dataset before splitting.
+3. Compute normalization statistics from the training set after splitting.
 4. Load chips as float32 tensors.
-5. Normalize each channel using precomputed mean and standard deviation.
+5. Normalize each channel using precomputed mean and standard deviation and apply to all sets (train, val, test).
 6. Train a U-Net with focal loss plus Dice loss.
-7. Save best checkpoint to `outputs/checkpoints/best_model.pth`.
+7. Save best checkpoint to `<experiment.checkpoint_dir>/<run_stamp>/best_model.pth` (per-experiment, per-run — e.g. `outputs/checkpoints/gee_full_gfc_v1/<stamp>/best_model.pth`, or the external-drive path pinned in that experiment's yaml).
 
 Known properties of the split (as used for this checkpoint):
 - The split is stratified only by deforestation presence.
 - Spatial grouping is not used.
 - Scene grouping is not used.
 - Geographic independence is not guaranteed.
-- Normalization is computed before splitting, so the split is not strictly leakage-free.
-
-This applies to the v1 checkpoint above, which predates block-level spatial
-splitting. `src/split_data.py` now also supports a block-level spatial split
-(`create_block_splits`, see `src/spatial_blocks.py`) for datasets processed
-with a GEE `mixer.json` sidecar present -- chips are grouped into spatial
-blocks and whole contiguous bands of blocks (not individual chips) are
-assigned to train/val/test, with a buffer strip dropped at each band
-boundary. `src/split_data.py --dataset-id <id>` picks this automatically
-whenever the processed metadata carries `block_id`. It has not yet been used
-for a trained checkpoint -- `gee_full_gfc_v1` (Phase 1's actual baseline,
-not yet exported) is the first dataset expected to use it.
+- Normalization is computed after splitting, calculated only from the training set, and then applied to val and test sets so it should be leakage-free.
 
 ## Evaluation status
 
@@ -145,10 +138,9 @@ The temporal design assumes that the change signal is meaningfully captured by t
 
 - This v1 checkpoint has split leakage risk because its splitting was random and class-stratified only. `src/split_data.py` now also supports a block-level spatial split for GFC-labeled datasets with a `mixer.json` sidecar (see "Training procedure" above); this checkpoint predates that and was not retrained with it.
 - Spatial and scene-level grouping were not enforced for this checkpoint.
-- Normalization statistics are computed before splitting (still true for both split strategies -- normalization stats are computed from the full processed dataset in `GFC_process_tfrecords4.py`/legacy processors, not per-split. This is a separate leakage source from the train/val/test split itself and neither split strategy addresses it).
 - Per-chip georeferencing metadata (tile row/col, centroid, bounding box) is now preserved for chips processed with a `mixer.json` present (`src/spatial_blocks.py`), but is not present in this checkpoint's training data, which predates that field.
 - Channel order depends on stored metadata and should be verified against band_names.
-- Labels are threshold-derived and may miss weak or ambiguous deforestation signals.
+- For the change-based (legacy) pipeline, labels are threshold-derived and may miss weak or ambiguous deforestation signals; for the Hansen pipeline, labels inherit any of Hansen GFC's own known limitations (annual granularity, sub-canopy or partial-canopy loss missed, etc.).
 - The model has not yet been shown to generalize beyond the Rondônia training region.
 
 ## Ethical and operational considerations
@@ -159,4 +151,4 @@ If deployed outside the original training area or time period, the model should 
 
 ## Version history
 
-- v1: Initial UNet Rondônia model using 18-channel change-based Sentinel-2 inputs and threshold-derived labels.
+- v1: Initial UNet Rondônia model using 18-channel Sentinel-2 inputs. Original v1 checkpoint was trained under the legacy change-based label path and with the pre-fix normalization (stats computed before splitting). The current pipeline uses Hansen loss labels and train-only normalization; a v2 retrain under this pipeline is pending.
