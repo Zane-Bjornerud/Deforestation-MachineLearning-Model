@@ -147,7 +147,7 @@ Every dataset used anywhere below is defined by a contract at `configs/datasets/
    # Final test-set evaluation — run ONCE, after all hyperparameter tuning is locked in
    python src/test.py --experiment <experiment_id> --checkpoint <run>/best_model.pth
    ```
-   `src/test.py` deliberately isolates the test-split evaluation from val-time scoring; every look at the test set contaminates it as a generalization estimator, so it's a separate script.
+   `src/test.py` deliberately isolates the test-split evaluation from val-time scoring; every look at the test set contaminates it as a generalization estimator, so it is a separate script.
 
 ## Data layout
 
