@@ -25,7 +25,7 @@ This repo keeps **code only** — no data or trained weights are committed. See 
 ## Architecture
 
 - U-Net, ResNet34 encoder, 18 input channels, 1 output channel (binary logits, sigmoid at inference).
-- Input: pre/post Sentinel-2 dry-season composites (`COPERNICUS/S2_SR_HARMONIZED`) plus derived NDVI/NBR and their pre→post deltas — 18 channels total, channel-first `float32`, `256 x 256` tiles. Full channel table in `docs/model-input-specification.md`.
+- Input: pre/post Sentinel-2 dry-season composites (`COPERNICUS/S2_SR_HARMONIZED`) plus derived NDVI/NBR and their pre-post deltas — 18 channels total, channel-first `float32`, `256 x 256` tiles. Full channel table in `docs/model-input-specification.md`.
 - Loss: Focal loss + Dice loss. Optimizer: AdamW.
 - Full details, intended use, and limitations: `docs/model-card.md`.
 
@@ -47,12 +47,12 @@ scripts/
 src/
   dataset_contract.py        dataset contract loading + validation
   GFC_process_tfrecords4.py  TFRecord -> chip/mask processor for Hansen-labeled datasets
-  change_based_processor.py  TFRecord -> chip/mask processor for legacy change-based labels
+  change_based_processor.py  TFRecord -> chip/mask processor for legacy version change-based labels, not used but kept for housekeeping
   spatial_blocks.py          block-based split geometry for train/val/test (leakage-safe)
   split_data.py              train/val/test split from processed metadata
   dataset.py                 PyTorch Dataset over processed chips/masks
   train.py                   training loop, driven by an experiment config
-  test.py                    evaluate a checkpoint on the held-out test split (run once)
+  test.py                    evaluate a checkpoint on the held-out test split
   threshold_sweep.py         sweep decision thresholds on val for the IoU-optimal cut
   plot_run.py                render per-run training curves (curves.png)
   plot_experiment.py         cross-run comparison plot (comparison.png)
