@@ -1,5 +1,6 @@
 import pickle
 import random
+import os
 from collections import defaultdict
 
 import numpy as np
@@ -272,6 +273,65 @@ def create_block_splits(
     print("\nBlock splits created successfully!")
     return splits
 
+def compute_normalization_stats_final(metadata_file, n_samples=100):
+    """Compute normalization statistics."""
+
+    print(f"\nComputing normalization statistics...")
+
+    base_dir = os.path.dirname(metadata_file)
+
+    with open(metadata_file, "rb") as f:
+        metadata = pickle.load(f)
+
+    if not metadata:
+        print("No metadata found!")
+        return None
+
+    # Sample chips for statistics
+    sample_size = min(n_samples, len(metadata))
+    sample_indices = np.random.choice(len(metadata), sample_size, replace=False)
+
+    print(f"Using {sample_size} chips for statistics...")
+
+    all_chips = []
+    for idx in sample_indices:
+        chip_path = os.path.join(base_dir, metadata[idx]["chip_path"])
+        chip = np.load(chip_path)
+        all_chips.append(chip)
+
+    # Stack all chips: (n_samples, n_bands, height, width)
+    all_chips = np.stack(all_chips, axis=0)
+
+    # Compute per-band statistics
+    means = np.mean(all_chips, axis=(0, 2, 3))
+    stds = np.std(all_chips, axis=(0, 2, 3))
+
+    # Avoid division by zero
+    stds = np.where(stds == 0, 1.0, stds)
+
+    # Print per-band statistics
+    print("Per-band statistics:")
+    band_names = metadata[0]["band_names"] if metadata else []
+    for i, (mean, std) in enumerate(zip(means, stds)):
+        band_name = band_names[i] if i < len(band_names) else f"Band_{i}"
+        print(f"  {band_name}: mean={mean:.3f}, std={std:.3f}")
+
+    stats = {
+        "means": means,
+        "stds": stds,
+        "n_samples_used": sample_size,
+        "n_bands": len(means),
+        "band_names": band_names,
+    }
+
+    # Save statistics
+    stats_path = os.path.join(base_dir, "normalization_stats.pkl")
+    with open(stats_path, "wb") as f:
+        pickle.dump(stats, f)
+
+    print(f"\nNormalization statistics saved to: {stats_path}")
+
+    return stats
 
 if __name__ == "__main__":
     import argparse
@@ -312,3 +372,6 @@ if __name__ == "__main__":
             "see docs/model-card.md)."
         )
         splits = create_data_splits(metadata_file, output_dir, contract)
+    
+    # Compute normalization statistics
+    stats = compute_normalization_stats_final(f"{output_dir}/train_metadata.pkl")    
