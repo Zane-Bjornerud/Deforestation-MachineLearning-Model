@@ -147,6 +147,13 @@ if __name__ == "__main__":
         "src/threshold_sweep.py when it materially beats 0.5 -- but only "
         "pick it from a val sweep, never by tuning against test.",
     )
+    parser.add_argument(
+        "--baseline",
+        action="store_true",
+        help="compute the dNBR/dNDVI threshold-rule baseline (fixed at "
+        "the legacy_threshold) against the same split, and write"
+        "baseline_metrics.json alongside the test_metrics.json output.",
+    )
     args = parser.parse_args()
 
     ckpt = Path(args.checkpoint)
