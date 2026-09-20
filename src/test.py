@@ -210,6 +210,25 @@ if __name__ == "__main__":
         "evaluated_at": datetime.now(timezone.utc).isoformat(),
     })
 
+    if args.baseline:
+        baseline = evaluate_baseline(dataset)
+        baseline.update({
+            "split": args.split,
+            "n_samples": len(dataset),
+            "experiment_id": experiment["experiment_id"],
+            "dataset_id": contract.dataset_id,
+            "evaluated_at": datetime.now(timezone.utc).isoformat(),
+        })
+        baseline_path = out_path.parent / f"{args.split}_baseline_metrics.json"
+        with open(baseline_path, "w") as f:
+            json.dump(baseline, f, indent=2)
+        print(f"\nBaseline metrics (dNBR/dNDVI threshold rule):")
+        print(f"  IoU:       {baseline['iou']:.4f}")
+        print(f"  F1:        {baseline['f1']:.4f}")
+        print(f"  Precision: {baseline['precision']:.4f}")
+        print(f"  Recall:    {baseline['recall']:.4f}")
+        print(f"\nBaseline results: {baseline_path}")
+
     out_path = Path(args.out_json) if args.out_json else resolve_out_path(
         ckpt, experiment["experiment_id"], args.split, args.tta, args.threshold
     )
