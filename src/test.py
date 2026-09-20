@@ -24,6 +24,7 @@ import os
 os.environ.setdefault("KMP_DUPLICATE_LIB_OK", "TRUE")
 
 import argparse
+import numpy as np
 import json
 from datetime import datetime, timezone
 from pathlib import Path
@@ -33,6 +34,7 @@ import segmentation_models_pytorch as smp
 from torch.utils.data import DataLoader
 
 from dataset import DeforestationDataset
+from band_names import CANONICAL_BAND_ORDER
 from dataset_contract import load_contract
 from train import DEVICE, dice_loss, focal_loss, load_experiment_config
 
@@ -40,7 +42,7 @@ from train import DEVICE, dice_loss, focal_loss, load_experiment_config
 def evaluate_test(model, loader, tta=False, threshold=0.5):
     """Same aggregation as train.train_model's val loop, isolated so this
     file doesn't depend on the training loop internals."""
-    inter = union = total_loss = pred_pos = actual_pos = 0
+    inter = union = total_loss = pred_pos = actual_pos = total_pixels = 0
     with torch.no_grad():
         for xb, yb in loader:
             xb, yb = xb.to(DEVICE), yb.to(DEVICE)
@@ -61,6 +63,11 @@ def evaluate_test(model, loader, tta=False, threshold=0.5):
             union += (pb | yb_bool).sum().item()
             pred_pos += pb.sum().item()
             actual_pos += yb_bool.sum().item()
+            total_pixels += yb_bool.numel()
+        FP = pred_pos - inter
+        FN = actual_pos - inter
+        TN = total_pixels - (inter + FP + FN)
+        specificity = TN / max(1, TN + FP)
 
     return {
         "loss": total_loss / max(1, len(loader)),
@@ -69,12 +76,17 @@ def evaluate_test(model, loader, tta=False, threshold=0.5):
         "precision": inter / max(1, pred_pos),
         "recall": inter / max(1, actual_pos),
         "n_batches": len(loader),
+        "TP": inter,
+        "FP": FP,
+        "FN": FN,
+        "TN": TN,
+        "specificity": specificity,
     }
 
 def evaluate_baseline(dataset, dnbr_thresh=-0.1, dndvi_thresh=-0.15):
         dndvi_idx = CANONICAL_BAND_ORDER.index("dNDVI")
         dnbr_idx = CANONICAL_BAND_ORDER.index("dNBR")
-        inter = union = pred_pos = actual_pos = 0
+        inter = union = pred_pos = actual_pos = total_pixels = 0
         for item in dataset.metadata:
             chip= np.load(f"{dataset.data_dir}/{item['chip_path']}")
             mask= np.load(f"{dataset.data_dir}/{item['mask_path']}")[0].astype(bool)
@@ -83,6 +95,11 @@ def evaluate_baseline(dataset, dnbr_thresh=-0.1, dndvi_thresh=-0.15):
             union += int((pb | mask).sum())
             pred_pos += int(pb.sum())
             actual_pos += int(mask.sum())
+            total_pixels += mask.size
+        FP = pred_pos - inter
+        FN = actual_pos - inter
+        TN = total_pixels - (inter + FP + FN)
+        specificity = TN / max(1, TN + FP)
         return {
             "iou":  inter / max(1, union),
             "f1":   2*inter / max(1, pred_pos + actual_pos),
@@ -91,6 +108,11 @@ def evaluate_baseline(dataset, dnbr_thresh=-0.1, dndvi_thresh=-0.15):
             "n_samples": len(dataset.metadata),
             "dnbr_threshold": dnbr_thresh,
             "dndvi_threshold": dndvi_thresh,
+            "TP": inter,
+            "FP": FP,
+            "FN": FN,
+            "TN": TN,
+            "specificity": specificity,
         }
 
 
@@ -210,6 +232,10 @@ if __name__ == "__main__":
         "evaluated_at": datetime.now(timezone.utc).isoformat(),
     })
 
+    out_path = Path(args.out_json) if args.out_json else resolve_out_path(
+        ckpt, experiment["experiment_id"], args.split, args.tta, args.threshold
+    )
+
     if args.baseline:
         baseline = evaluate_baseline(dataset)
         baseline.update({
@@ -222,16 +248,12 @@ if __name__ == "__main__":
         baseline_path = out_path.parent / f"{args.split}_baseline_metrics.json"
         with open(baseline_path, "w") as f:
             json.dump(baseline, f, indent=2)
-        print(f"\nBaseline metrics (dNBR/dNDVI threshold rule):")
+        print(f"\nBaseline metrics (dNBR<{baseline['dnbr_threshold']} AND dNDVI<{baseline['dndvi_threshold']}):")
         print(f"  IoU:       {baseline['iou']:.4f}")
         print(f"  F1:        {baseline['f1']:.4f}")
         print(f"  Precision: {baseline['precision']:.4f}")
         print(f"  Recall:    {baseline['recall']:.4f}")
         print(f"\nBaseline results: {baseline_path}")
-
-    out_path = Path(args.out_json) if args.out_json else resolve_out_path(
-        ckpt, experiment["experiment_id"], args.split, args.tta, args.threshold
-    )
     out_path.parent.mkdir(parents=True, exist_ok=True)
     with open(out_path, "w") as f:
         json.dump(metrics, f, indent=2)
