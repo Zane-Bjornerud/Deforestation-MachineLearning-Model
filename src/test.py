@@ -71,6 +71,28 @@ def evaluate_test(model, loader, tta=False, threshold=0.5):
         "n_batches": len(loader),
     }
 
+def evaluate_baseline(dataset, dnbr_thresh=-0.1, dndvi_thresh=-0.15):
+        dndvi_idx = CANONICAL_BAND_ORDER.index("dNDVI")
+        dnbr_idx = CANONICAL_BAND_ORDER.index("dNBR")
+        inter = union = pred_pos = actual_pos = 0
+        for item in dataset.metadata:
+            chip= np.load(f"{dataset.data_dir}/{item['chip_path']}")
+            mask= np.load(f"{dataset.data_dir}/{item['mask_path']}")[0].astype(bool)
+            pb = (chip[dnbr_idx] < dnbr_thresh) & (chip[dndvi_idx] < dndvi_thresh)
+            inter += int((pb&mask).sum())
+            union += int((pb | mask).sum())
+            pred_pos += int(pb.sum())
+            actual_pos += int(mask.sum())
+        return {
+            "iou":  inter / max(1, union),
+            "f1":   2*inter / max(1, pred_pos + actual_pos),
+            "precision": inter / max(1, pred_pos),
+            "recall": inter / max(1, actual_pos),
+            "n_samples": len(dataset.metadata),
+            "dnbr_threshold": dnbr_thresh,
+            "dndvi_threshold": dndvi_thresh,
+        }
+
 
 def resolve_out_path(ckpt: Path, experiment_id: str, split: str = "test", tta: bool = False, threshold: float = 0.5) -> Path:
     """If the checkpoint sits under a per-run stamp folder (the layout
