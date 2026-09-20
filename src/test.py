@@ -29,6 +29,10 @@ import json
 from datetime import datetime, timezone
 from pathlib import Path
 
+import matplotlib
+matplotlib.use("Agg")  # headless save; no display needed                                                                                                
+import matplotlib.pyplot as plt 
+
 import torch
 import segmentation_models_pytorch as smp
 from torch.utils.data import DataLoader
@@ -130,6 +134,28 @@ def resolve_out_path(ckpt: Path, experiment_id: str, split: str = "test", tta: b
     if default_dir.exists():
         return default_dir / f"{split}_metrics{suffix}.json"
     return ckpt.parent / f"{split}_metrics{suffix}.json"
+
+def save_confusion_matrix(m, out_path, title):                                                                                                           
+      """Render a 2x2 confusion matrix as a heatmap. Each cell shows the                                                                                   
+      raw pixel count and its share of the actual-class row"""                                                                              
+      counts = np.array([[m["TN"], m["FP"]],                                                                                                               
+                         [m["FN"], m["TP"]]])                                                                                                              
+      row_sums = counts.sum(axis=1, keepdims=True)                                                                                                         
+      pct = counts / np.maximum(row_sums, 1) * 100                                                                                                         
+                                                                                                                                                           
+      fig, ax = plt.subplots(figsize=(5, 4))                                                                                                               
+      ax.imshow(counts, cmap="Blues")                                                                                                                      
+      ax.set_xticks([0, 1], ["Predicted Neg", "Predicted Pos"])                                                                                            
+      ax.set_yticks([0, 1], ["Actual Neg", "Actual Pos"])                                                                                                  
+      for i in range(2):                                                                                                                                   
+          for j in range(2):                                                                                                                               
+              ax.text(j, i, f"{counts[i,j]:,}\n({pct[i,j]:.2f}%)",                                                                                         
+                      ha="center", va="center",                                                                                                            
+                      color="white" if counts[i,j] > counts.max()/2 else "black")                                                                          
+      ax.set_title(title)                                                                                                                                  
+      fig.tight_layout()                                                                                                                                   
+      fig.savefig(out_path, dpi=120)                                                                                                                       
+      plt.close(fig)
 
 
 if __name__ == "__main__":
@@ -246,17 +272,32 @@ if __name__ == "__main__":
             "evaluated_at": datetime.now(timezone.utc).isoformat(),
         })
         baseline_path = out_path.parent / f"{args.split}_baseline_metrics.json"
+        
         with open(baseline_path, "w") as f:
             json.dump(baseline, f, indent=2)
+        baseline_cm_path = baseline_path.parent / f"{baseline_path.stem}_confusion.png"                                                                          
+        save_confusion_matrix(                                                                                                                                   
+            baseline, baseline_cm_path,                                                                                                                          
+            title=f"{args.split} baseline (dNBR<{baseline['dnbr_threshold']} & dNDVI<{baseline['dndvi_threshold']})",                                            
+        )                                                                                                                                                        
+        print(f"Baseline confusion matrix: {baseline_cm_path}")
         print(f"\nBaseline metrics (dNBR<{baseline['dnbr_threshold']} AND dNDVI<{baseline['dndvi_threshold']}):")
         print(f"  IoU:       {baseline['iou']:.4f}")
         print(f"  F1:        {baseline['f1']:.4f}")
         print(f"  Precision: {baseline['precision']:.4f}")
         print(f"  Recall:    {baseline['recall']:.4f}")
         print(f"\nBaseline results: {baseline_path}")
+    
+    
     out_path.parent.mkdir(parents=True, exist_ok=True)
     with open(out_path, "w") as f:
         json.dump(metrics, f, indent=2)
+    cm_path = out_path.parent / f"{out_path.stem}_confusion.png"                                                                                             
+    save_confusion_matrix(                                                                                                                                   
+        metrics, cm_path,                                                                                                                                    
+        title=f"{args.split} — {experiment['experiment_id']}",                                                                                               
+    )                                                                                                                                                        
+    print(f"Confusion matrix: {cm_path}")
 
     print(f"\n{args.split} metrics{' (TTA)' if args.tta else ''}:")
     print(f"  IoU:       {metrics['iou']:.4f}")
