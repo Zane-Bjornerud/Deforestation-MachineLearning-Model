@@ -1,0 +1,98 @@
+{
+  "experiment_id": "gee_full_gfc_v1",
+  "dataset_id": "gee_full_gfc_v1",
+  "split": "val",
+  "n_samples": 1548,
+  "actual_positive_pixels": 1651445,
+  "checkpoint": "/Volumes/LaCie/deforest_outputs/checkpoints/gee_full_gfc_v1/20260817T214014Z/best_model.pth",
+  "device": "mps",
+  "batch_size": 8,
+  "thresholds": [
+    0.3,
+    0.35,
+    0.4,
+    0.45,
+    0.5,
+    0.55,
+    0.6,
+    0.65,
+    0.7
+  ],
+  "results": [
+    {
+      "threshold": 0.3,
+      "iou": 0.5143788557781143,
+      "f1": 0.679326515707085,
+      "precision": 0.6730452405857741,
+      "recall": 0.6857261368074625,
+      "pred_positive_pixels": 1682560
+    },
+    {
+      "threshold": 0.35,
+      "iou": 0.5201138141667372,
+      "f1": 0.6843090422829186,
+      "precision": 0.687702915500925,
+      "recall": 0.6809485026749301,
+      "pred_positive_pixels": 1635225
+    },
+    {
+      "threshold": 0.4,
+      "iou": 0.5248171220306563,
+      "f1": 0.6883672991968212,
+      "precision": 0.7009864171476136,
+      "recall": 0.6761944842244216,
+      "pred_positive_pixels": 1593038
+    },
+    {
+      "threshold": 0.45,
+      "iou": 0.5286125514717096,
+      "f1": 0.6916239840668256,
+      "precision": 0.7128476410889546,
+      "recall": 0.6716275746391797,
+      "pred_positive_pixels": 1555951
+    },
+    {
+      "threshold": 0.5,
+      "iou": 0.5309403231079781,
+      "f1": 0.6936133500358924,
+      "precision": 0.7227834240782293,
+      "recall": 0.6667064298235788,
+      "pred_positive_pixels": 1523318
+    },
+    {
+      "threshold": 0.55,
+      "iou": 0.5322185797780529,
+      "f1": 0.6947032059292044,
+      "precision": 0.7313949245647451,
+      "recall": 0.6615170350813984,
+      "pred_positive_pixels": 1493665
+    },
+    {
+      "threshold": 0.6,
+      "iou": 0.5326731699158316,
+      "f1": 0.695090356341377,
+      "precision": 0.7395300839560203,
+      "recall": 0.6556888058639555,
+      "pred_positive_pixels": 1464219
+    },
+    {
+      "threshold": 0.65,
+      "iou": 0.5323807022186957,
+      "f1": 0.6948413034017917,
+      "precision": 0.7473373556456424,
+      "recall": 0.6492362748986493,
+      "pred_positive_pixels": 1434664
+    },
+    {
+      "threshold": 0.7,
+      "iou": 0.5317680797567389,
+      "f1": 0.694319312152254,
+      "precision": 0.7555717975787988,
+      "recall": 0.6422532993832674,
+      "pred_positive_pixels": 1403766
+    }
+  ],
+  "best_threshold": 0.6,
+  "best_iou": 0.5326731699158316,
+  "evaluated_at": "2026-08-18T21:58:57.099838+00:00"
+}

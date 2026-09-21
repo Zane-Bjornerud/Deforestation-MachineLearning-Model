@@ -1,0 +1,23 @@
+{
+  "loss": 0.7818713924017819,
+  "iou": 0.4468479892586411,
+  "f1": 0.6176847776352845,
+  "precision": 0.6252564732896974,
+  "recall": 0.6102942704231582,
+  "n_batches": 275,
+  "TP": 1821112,
+  "FP": 1091472,
+  "FN": 1162878,
+  "TN": 139644986,
+  "specificity": 0.992244568212737,
+  "split": "test",
+  "tta": true,
+  "threshold": 0.65,
+  "n_samples": 2193,
+  "checkpoint": "/Volumes/LaCie/deforest_outputs/checkpoints/gee_full_gfc_v1/20260920T221124Z/best_model.pth",
+  "experiment_id": "gee_full_gfc_v1",
+  "dataset_id": "gee_full_gfc_v1",
+  "device": "mps",
+  "batch_size": 8,
+  "evaluated_at": "2026-09-21T15:46:04.334667+00:00"
+}

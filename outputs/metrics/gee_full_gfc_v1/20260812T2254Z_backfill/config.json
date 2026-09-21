@@ -1,0 +1,21 @@
+{
+  "experiment_id": "gee_full_gfc_v1",
+  "dataset_id": "gee_full_gfc_v1",
+  "label_mode": "hansen_loss",
+  "processed_path": "/Volumes/LaCie/deforest_processed/gee_full_gfc_v1",
+  "checkpoint_dir": "/Volumes/LaCie/deforest_outputs/checkpoints/gee_full_gfc_v1",
+  "run_checkpoint_dir": "/Volumes/LaCie/deforest_outputs/checkpoints/gee_full_gfc_v1/20260812T2254Z_backfill",
+  "run_stamp": "20260812T2254Z_backfill",
+  "epochs": 25,
+  "batch_size": 8,
+  "learning_rate": 0.0001,
+  "num_workers": 2,
+  "device": "mps",
+  "input_channels": 18,
+  "git_commit": "f024780",
+  "git_dirty": true,
+  "started_at": "2026-08-12T22:54:00Z",
+  "backfilled": true,
+  "source_log": "outputs/logs/train_gee_full_gfc_v1.log",
+  "backfill_notes": "epoch_seconds and per-epoch timestamps are null (not in stdout log). started_at is approximate."
+}

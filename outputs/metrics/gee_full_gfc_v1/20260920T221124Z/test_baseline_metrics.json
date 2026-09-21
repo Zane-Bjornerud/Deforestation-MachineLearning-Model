@@ -1,0 +1,18 @@
+{
+  "iou": 3.664547336790223e-06,
+  "f1": 7.3290678158645e-06,
+  "precision": 0.0006195088984005407,
+  "recall": 3.686339431432411e-06,
+  "n_samples": 2193,
+  "dnbr_threshold": -0.1,
+  "dndvi_threshold": -0.15,
+  "TP": 11,
+  "FP": 17745,
+  "FN": 2983979,
+  "TN": 140718713,
+  "specificity": 0.9998739132684439,
+  "split": "test",
+  "experiment_id": "gee_full_gfc_v1",
+  "dataset_id": "gee_full_gfc_v1",
+  "evaluated_at": "2026-09-21T15:47:35.171144+00:00"
+}

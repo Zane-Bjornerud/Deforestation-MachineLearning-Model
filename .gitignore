@@ -28,7 +28,8 @@ tmp/
 artifacts/
 debug/
 raw_confirmation/
-outputs/
+outputs/*
+!outputs/metrics/
 models/
 checkpoints/
 *.ckpt
