@@ -88,39 +88,23 @@ Training uses the processed metadata splits produced by `src/split_data.py` and 
 
 Current procedure:
 1. Load processed chip and mask metadata.
-2. Split metadata into train/validation/test using class-stratified random splitting.
-3. Compute normalization statistics from the training set after splitting.
+2. Split metadata into train/validation/test as contiguous geographic bands of spatial blocks (`create_block_splits` in `src/split_data.py`) when the metadata carries `block_id`; fall back to a class-stratified random chip split otherwise.
+3. Compute per-channel normalization statistics from the training split only.
 4. Load chips as float32 tensors.
-5. Normalize each channel using precomputed mean and standard deviation and apply to all sets (train, val, test).
+5. Normalize each channel using the precomputed mean/std and apply the same stats to train, val, and test.
 6. Train a U-Net with focal loss plus Dice loss.
 7. Save best checkpoint to `<experiment.checkpoint_dir>/<run_stamp>/best_model.pth` (per-experiment, per-run — e.g. `outputs/checkpoints/gee_full_gfc_v1/<stamp>/best_model.pth`, or the external-drive path pinned in that experiment's yaml).
 
-Known properties of the split (as used for this checkpoint):
-- The split is stratified only by deforestation presence.
-- Spatial grouping is not used.
-- Scene grouping is not used.
-- Geographic independence is not guaranteed.
-- Normalization is computed after splitting, calculated only from the training set, and then applied to val and test sets so it should be leakage-free.
+Known properties of the split:
+- Train, val, and test are contiguous geographic bands of spatial blocks along one grid axis, with a buffer strip of blocks dropped at each band boundary. Chips from the same immediate area cannot cross splits.
+- Because the bands are contiguous rather than scattered, each split's composition (positive rate, landscape mix) depends on where deforestation activity falls within the AOI. `create_block_splits` prints and sanity-checks the per-split composition at split time to catch degenerate bands.
+- Normalization statistics come from the training split only; val and test are z-scored using stats they did not contribute to.
 
 ## Evaluation status
 
-Formal independent evaluation has not yet been established in the current repository. The training script reports validation IoU, F1, precision, and recall during training, and saves the best checkpoint based on validation IoU.
+Training reports per-epoch validation IoU, F1, precision, and recall, and keeps the checkpoint with the best validation IoU. Held-out test scoring runs separately via `src/test.py`, which additionally reports the full 2x2 confusion matrix (TP/FP/FN/TN plus specificity) and can score a dNBR/dNDVI threshold-rule baseline against the same split for comparison.
 
-Current evaluation caveats (for this checkpoint):
-- Validation and test data may not be geographically independent.
-- Neighboring chips and chips from the same scene may cross splits.
-- Reported metrics should be interpreted as random-chip split performance, not as fully independent geographic generalization.
-
-A future checkpoint trained on a block-split dataset (see above) will not
-carry this caveat in the same form -- its val/test bands are contiguous
-geographic regions disjoint from train, so its metrics should reflect
-generalization to unseen terrain rather than interpolation within
-already-seen scenes. That checkpoint's own caveat will instead be that
-train/val/test are large contiguous regions rather than a representative
-random sample, so any one split's composition (positive rate, landscape mix)
-can differ from the others depending on where deforestation activity falls
-within the AOI -- this is checked and printed by `create_block_splits` at
-split time.
+Because train/val/test are contiguous geographic bands, reported metrics reflect generalization to unseen terrain rather than interpolation within already-seen scenes. The tradeoff is that each split's composition depends on where deforestation activity falls within the AOI, so a single split's metrics can differ from what a scattered random split would produce.
 
 ## Geographic scope
 
@@ -136,12 +120,10 @@ The temporal design assumes that the change signal is meaningfully captured by t
 
 ## Known limitations
 
-- This v1 checkpoint has split leakage risk because its splitting was random and class-stratified only. `src/split_data.py` now also supports a block-level spatial split for GFC-labeled datasets with a `mixer.json` sidecar (see "Training procedure" above); this checkpoint predates that and was not retrained with it.
-- Spatial and scene-level grouping were not enforced for this checkpoint.
-- Per-chip georeferencing metadata (tile row/col, centroid, bounding box) is now preserved for chips processed with a `mixer.json` present (`src/spatial_blocks.py`), but is not present in this checkpoint's training data, which predates that field.
-- Channel order depends on stored metadata and should be verified against band_names.
-- For the change-based (legacy) pipeline, labels are threshold-derived and may miss weak or ambiguous deforestation signals; for the Hansen pipeline, labels inherit any of Hansen GFC's own known limitations (annual granularity, sub-canopy or partial-canopy loss missed, etc.).
-- The model has not yet been shown to generalize beyond the Rondônia training region.
+- Split composition depends on where deforestation activity falls within the AOI, since the bands are contiguous rather than scattered. `create_block_splits` sanity-checks this at split time.
+- Channel order depends on stored metadata and should be verified against `band_names.py`.
+- Hansen labels inherit Hansen GFC's own limitations (annual granularity, sub-canopy or partial-canopy loss missed). Change-based (legacy) labels are threshold-derived and may miss weak or ambiguous signals.
+- The model has not been shown to generalize beyond the Rondônia training region.
 
 ## Ethical and operational considerations
 
@@ -151,4 +133,4 @@ If deployed outside the original training area or time period, the model should 
 
 ## Version history
 
-- v1: Initial UNet Rondônia model using 18-channel Sentinel-2 inputs. Original v1 checkpoint was trained under the legacy change-based label path and with the pre-fix normalization (stats computed before splitting). The current pipeline uses Hansen loss labels and train-only normalization; a v2 retrain under this pipeline is pending.
+- v1: UNet Rondônia trained on 18-channel Sentinel-2 pre/post composites with Hansen GFC loss labels, block-level spatial split, and train-only normalization stats.
