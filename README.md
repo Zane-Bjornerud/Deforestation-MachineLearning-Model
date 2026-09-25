@@ -100,7 +100,7 @@ Every dataset used anywhere below is defined by a contract at `configs/datasets/
    ```bash
    python src/GFC_process_tfrecords4.py --dataset-id <dataset_id>
    ```
-   Writes `chips/*.npy`, `masks/*.npy`, `metadata.pkl`, and `normalization_stats.pkl` under `data/processed/<dataset_id>/`.
+   Writes `chips/*.npy`, `masks/*.npy`, and `metadata.pkl` under `data/processed/<dataset_id>/`. Normalization stats are computed later, in the split step, from training chips only.
 
 4. **QC the processed output:**
    ```bash
@@ -113,6 +113,7 @@ Every dataset used anywhere below is defined by a contract at `configs/datasets/
    python src/split_data.py --dataset-id <dataset_id>
    python scripts/smoke_test_training.py --dataset-id <dataset_id>
    ```
+   `split_data.py` picks a block-level spatial split automatically when the processed metadata carries `block_id` (i.e. GEE exports with a `mixer.json` sidecar), and falls back to a class-stratified random chip split otherwise. It also writes `normalization_stats.pkl` under `data/processed/<dataset_id>/`, computed from `train_metadata.pkl` only so val and test stay leakage-free.
 
 6. **Train**, via an experiment config at `configs/experiments/<experiment_id>.yaml` (pins the dataset id, checkpoint dir, and hyperparameters):
    ```bash
@@ -145,9 +146,10 @@ Every dataset used anywhere below is defined by a contract at `configs/datasets/
    python src/plot_experiment.py --experiment-dir outputs/metrics/<experiment_id>
 
    # Final test-set evaluation — run ONCE, after all hyperparameter tuning is locked in
-   python src/test.py --experiment <experiment_id> --checkpoint <run>/best_model.pth
+   python src/test.py --experiment <experiment_id> --checkpoint <run>/best_model.pth \
+       --tta --baseline
    ```
-   `src/test.py` deliberately isolates the test-split evaluation from val-time scoring; every look at the test set contaminates it as a generalization estimator, so it is a separate script.
+   `src/test.py` supports `--tta` (test-time augmentation over identity + H/V/HV flips, 4x compute for a small accuracy bump), `--threshold <value>` (override the default 0.5 decision cutoff, e.g. with the IoU-optimal cut from `threshold_sweep.py`), and `--baseline` (also score the dNBR/dNDVI threshold rule against the same split so you have a zero-learning reference). Alongside each JSON, it writes a confusion matrix PNG so TP/FP/FN/TN are visible at a glance. The script is deliberately isolated from val-time scoring; every look at the test set contaminates it as a generalization estimator, so it is a separate command.
 
 ## Data layout
 
