@@ -63,6 +63,7 @@ if __name__ == "__main__":
     if not ckpt.exists():
         raise FileNotFoundError(f"checkpoint not found: {ckpt}")
 
+    #load_experiment_config + load_contract for the training dataset, not the inference dataset. The inference dataset is only used to load the split metadata and normalization stats.
     experiment = load_experiment_config(args.experiment)
     contract = load_contract(experiment["dataset_id"])
 
@@ -95,54 +96,16 @@ if __name__ == "__main__":
 
     sample_x, _ = dataset[0]
     in_ch = sample_x.shape[0]
+    #building smp.Unet and loading the checkpoint
     model = smp.Unet(encoder_name="resnet34", in_channels=in_ch, classes=1).to(DEVICE)
     model.load_state_dict(torch.load(ckpt, map_location=DEVICE))
     model.eval()
 
-    metrics = evaluate_test(model, loader, tta=args.tta, threshold=args.threshold)
-    metrics.update({
-        "split": args.split,
-        "tta": args.tta,
-        "threshold": args.threshold,
-        "n_samples": len(dataset),
-        "checkpoint": str(ckpt),
-        "experiment_id": experiment["experiment_id"],
-        "dataset_id": contract.dataset_id,
-        "device": str(DEVICE),
-        "batch_size": args.batch_size,
-        "evaluated_at": datetime.now(timezone.utc).isoformat(),
-    })
+    
 
     out_path = Path(args.out_json) if args.out_json else resolve_out_path(
         ckpt, experiment["experiment_id"], args.split, args.tta, args.threshold
     )
-
-    if args.baseline:
-        baseline = evaluate_baseline(dataset)
-        baseline.update({
-            "split": args.split,
-            "n_samples": len(dataset),
-            "experiment_id": experiment["experiment_id"],
-            "dataset_id": contract.dataset_id,
-            "evaluated_at": datetime.now(timezone.utc).isoformat(),
-        })
-        baseline_path = out_path.parent / f"{args.split}_baseline_metrics.json"
-        
-        with open(baseline_path, "w") as f:
-            json.dump(baseline, f, indent=2)
-        baseline_cm_path = baseline_path.parent / f"{baseline_path.stem}_confusion.png"                                                                          
-        save_confusion_matrix(                                                                                                                                   
-            baseline, baseline_cm_path,                                                                                                                          
-            title=f"{args.split} baseline (dNBR<{baseline['dnbr_threshold']} & dNDVI<{baseline['dndvi_threshold']})",                                            
-        )                                                                                                                                                        
-        print(f"Baseline confusion matrix: {baseline_cm_path}")
-        print(f"\nBaseline metrics (dNBR<{baseline['dnbr_threshold']} AND dNDVI<{baseline['dndvi_threshold']}):")
-        print(f"  IoU:       {baseline['iou']:.4f}")
-        print(f"  F1:        {baseline['f1']:.4f}")
-        print(f"  Precision: {baseline['precision']:.4f}")
-        print(f"  Recall:    {baseline['recall']:.4f}")
-        print(f"\nBaseline results: {baseline_path}")
-    
     
     out_path.parent.mkdir(parents=True, exist_ok=True)
     with open(out_path, "w") as f:
